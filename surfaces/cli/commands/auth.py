@@ -8,8 +8,12 @@ from collections.abc import Iterable
 
 import click
 import questionary
+from rich import box
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
-from platform.terminal.theme import HIGHLIGHT
+from platform.terminal.theme import BOLD_BRAND, ERROR, HIGHLIGHT, SECONDARY, WARNING
 from surfaces.cli.llm_auth.providers import (
     ProviderAuthProfile,
     iter_auth_profiles,
@@ -86,13 +90,34 @@ def _maybe_open_setup_page(profile: ProviderAuthProfile, *, enabled: bool) -> No
         webbrowser.open(profile.setup_url)
 
 
-def _status_lines(providers: Iterable[ProviderAuthProfile]) -> list[str]:
-    lines = [f"{'Provider':<14} {'Status':<8} {'Source':<11} Detail"]
+# Mirrors render_health_report's table style (surfaces/interactive_shell/ui/health) so
+# /auth and /health read consistently. Real ANSI colour is intentional: run_cli_command
+# captures this command's stdout with FORCE_COLOR=1 and Text.from_ansi() re-parses it
+# for the REPL, so force_terminal=True here is what makes that styling survive.
+_console = Console(
+    highlight=False, force_terminal=True, color_system="truecolor", legacy_windows=False
+)
+
+
+def _status_badge(state: str) -> Text:
+    if state == "ok":
+        return Text("ok", style=f"bold {HIGHLIGHT}")
+    if state == "stale":
+        return Text("stale", style=f"bold {WARNING}")
+    return Text("missing", style=f"bold {ERROR}")
+
+
+def _render_status_table(providers: Iterable[ProviderAuthProfile]) -> None:
+    table = Table(title="Auth status", box=box.SIMPLE_HEAVY, show_lines=False)
+    table.add_column("Provider", style=BOLD_BRAND)
+    table.add_column("Status")
+    table.add_column("Source", style=SECONDARY)
+    table.add_column("Detail")
     for profile in providers:
         status = provider_status(profile.name)
         state = "stale" if status.stale else "ok" if status.authenticated else "missing"
-        lines.append(f"{profile.name:<14} {state:<8} {status.source:<11} {status.detail}")
-    return lines
+        table.add_row(profile.name, _status_badge(state), status.source, status.detail)
+    _console.print(table)
 
 
 @click.group(name="auth", invoke_without_command=True)
@@ -100,8 +125,7 @@ def _status_lines(providers: Iterable[ProviderAuthProfile]) -> list[str]:
 def auth_command(ctx: click.Context) -> None:
     """Log in to LLM providers and inspect local auth state."""
     if ctx.invoked_subcommand is None:
-        for line in _status_lines(iter_auth_profiles()):
-            click.echo(line)
+        _render_status_table(iter_auth_profiles())
 
 
 @auth_command.command(name="login")
@@ -188,8 +212,7 @@ def auth_login(
 def auth_status(provider: str | None) -> None:
     """Show provider auth status."""
     profiles = (_resolve_or_raise(provider),) if provider else iter_auth_profiles()
-    for line in _status_lines(profiles):
-        click.echo(line)
+    _render_status_table(profiles)
 
 
 @auth_command.command(name="verify")

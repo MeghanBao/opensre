@@ -28,10 +28,21 @@ def test_tool_unavailable_merges_extra_fields() -> None:
     }
 
 
-def test_tool_unavailable_extra_field_does_not_disturb_base_fields() -> None:
+def test_tool_unavailable_unrelated_extra_field_preserved() -> None:
     payload = tool_unavailable("posthog_mcp", "not configured", tool="list_flags")
 
     assert payload["source"] == "posthog_mcp"
     assert payload["available"] is False
     assert payload["error"] == "not configured"
     assert payload["tool"] == "list_flags"
+
+
+def test_tool_unavailable_extra_can_override_base_fields() -> None:
+    """extra is merged in after the base fields, so a same-named kwarg wins.
+
+    This is intentional (see the tool_unavailable docstring) and documented
+    here so the override behavior doesn't get "fixed" by accident later.
+    """
+    payload = tool_unavailable("groundcover", "query failed", available=True)
+
+    assert payload["available"] is True

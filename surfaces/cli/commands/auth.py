@@ -50,7 +50,7 @@ def _resolve_or_raise(provider: str) -> ProviderAuthProfile:
 
 
 def _provider_choice(profile: ProviderAuthProfile) -> questionary.Choice:
-    return questionary.Choice(f"{profile.name:<10} {profile.label}", value=profile.name)
+    return questionary.Choice(f"{profile.name} ({profile.label})", value=profile.name)
 
 
 def _prompt_provider() -> ProviderAuthProfile:

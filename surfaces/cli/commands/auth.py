@@ -55,6 +55,7 @@ def _provider_choice(profile: ProviderAuthProfile) -> questionary.Choice:
 
 def _prompt_provider() -> ProviderAuthProfile:
     choices: list[questionary.Choice | questionary.Separator] = [
+        questionary.Separator(" "),
         questionary.Separator("Subscription logins"),
     ]
     choices.extend(

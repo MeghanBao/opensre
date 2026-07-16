@@ -13,6 +13,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from platform.terminal.prompt_support import (
+    QUESTIONARY_QMARK,
+    questionary_prompt_style,
+)
 from platform.terminal.theme import BOLD_BRAND, ERROR, HIGHLIGHT, SECONDARY, WARNING
 from surfaces.cli.llm_auth.providers import (
     ProviderAuthProfile,
@@ -27,13 +31,6 @@ from surfaces.cli.llm_auth.service import (
     provider_status,
     verify_provider,
 )
-
-# Matches the REPL's ❯ prompt instead of questionary's default "?" qmark.
-_QMARK = "❯"
-
-
-def _prompt_style() -> questionary.Style:
-    return questionary.Style([("qmark", f"fg:{HIGHLIGHT} bold")])
 
 
 def _provider_choices() -> str:
@@ -72,8 +69,8 @@ def _prompt_provider() -> ProviderAuthProfile:
     provider = questionary.select(
         "Choose a provider:",
         choices=choices,
-        qmark=_QMARK,
-        style=_prompt_style(),
+        qmark=QUESTIONARY_QMARK,
+        style=questionary_prompt_style(),
         instruction="(use arrow keys)",
     ).ask()
     if provider is None:

@@ -16,12 +16,15 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import questionary
 
+from platform.terminal.prompt_support import (
+    QUESTIONARY_QMARK,
+    questionary_prompt_style,
+)
 from platform.terminal.theme import (
     ANSI_BOLD,
     ANSI_DIM,
     ANSI_RESET,
     DEVICE_CODE_ANSI,
-    HIGHLIGHT,
 )
 
 if TYPE_CHECKING:
@@ -87,32 +90,31 @@ _SECRET_KEYS = frozenset(
 )
 
 
-# Matches the REPL's ❯ prompt (surfaces/interactive_shell/ui/input_prompt) instead of
-# questionary's default "?" qmark, so every OpenSRE prompt surface reads the same.
-_QMARK = "❯"
-
-
-def _prompt_style() -> questionary.Style:
-    return questionary.Style([("qmark", f"fg:{HIGHLIGHT} bold")])
-
-
 def _select(message: str, choices: list[Any], **kwargs: Any) -> Any:
     return questionary.select(
-        message, choices=choices, qmark=_QMARK, style=_prompt_style(), **kwargs
+        message,
+        choices=choices,
+        qmark=QUESTIONARY_QMARK,
+        style=questionary_prompt_style(),
+        **kwargs,
     ).ask()
 
 
 def _confirm(message: str, **kwargs: Any) -> Any:
-    return questionary.confirm(message, qmark=_QMARK, style=_prompt_style(), **kwargs).ask()
+    return questionary.confirm(
+        message, qmark=QUESTIONARY_QMARK, style=questionary_prompt_style(), **kwargs
+    ).ask()
 
 
 def _p(label: str, default: str = "", secret: bool = False) -> str:
     try:
         if secret:
-            result = questionary.password(label, qmark=_QMARK, style=_prompt_style()).ask()
+            result = questionary.password(
+                label, qmark=QUESTIONARY_QMARK, style=questionary_prompt_style()
+            ).ask()
         else:
             result = questionary.text(
-                label, default=default, qmark=_QMARK, style=_prompt_style()
+                label, default=default, qmark=QUESTIONARY_QMARK, style=questionary_prompt_style()
             ).ask()
     except (EOFError, KeyboardInterrupt):
         print("\nAborted.")

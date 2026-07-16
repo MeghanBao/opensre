@@ -7,7 +7,9 @@ import webbrowser
 from collections.abc import Iterable
 
 import click
+import questionary
 
+from platform.terminal.theme import HIGHLIGHT
 from surfaces.cli.llm_auth.providers import (
     ProviderAuthProfile,
     iter_auth_profiles,
@@ -21,6 +23,13 @@ from surfaces.cli.llm_auth.service import (
     provider_status,
     verify_provider,
 )
+
+# Matches the REPL's ❯ prompt instead of questionary's default "?" qmark.
+_QMARK = "❯"
+
+
+def _prompt_style() -> questionary.Style:
+    return questionary.Style([("qmark", f"fg:{HIGHLIGHT} bold")])
 
 
 def _provider_choices() -> str:
@@ -36,15 +45,34 @@ def _resolve_or_raise(provider: str) -> ProviderAuthProfile:
         ) from exc
 
 
+def _provider_choice(profile: ProviderAuthProfile) -> questionary.Choice:
+    return questionary.Choice(f"{profile.name:<10} {profile.label}", value=profile.name)
+
+
 def _prompt_provider() -> ProviderAuthProfile:
-    click.echo("Subscription logins:")
-    for profile in iter_auth_profiles():
-        if profile.kind == "cli_subscription":
-            click.echo(f"  {profile.name:<10} {profile.label}")
-    click.echo("API-key providers:")
-    api_key_names = [profile.name for profile in iter_auth_profiles() if profile.kind == "api_key"]
-    click.echo(f"  {', '.join(api_key_names)}")
-    provider = click.prompt("Provider", type=str).strip()
+    choices: list[questionary.Choice | questionary.Separator] = [
+        questionary.Separator("Subscription logins"),
+    ]
+    choices.extend(
+        _provider_choice(profile)
+        for profile in iter_auth_profiles()
+        if profile.kind == "cli_subscription"
+    )
+    choices.append(questionary.Separator(" "))
+    choices.append(questionary.Separator("API-key providers"))
+    choices.extend(
+        _provider_choice(profile) for profile in iter_auth_profiles() if profile.kind == "api_key"
+    )
+
+    provider = questionary.select(
+        "Choose a provider:",
+        choices=choices,
+        qmark=_QMARK,
+        style=_prompt_style(),
+        instruction="(use arrow keys)",
+    ).ask()
+    if provider is None:
+        raise click.Abort()
     return _resolve_or_raise(provider)
 
 

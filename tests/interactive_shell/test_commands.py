@@ -495,7 +495,7 @@ class TestDispatchSlash:
 
         calls: list[list[str]] = []
 
-        def _fake_run_cli_command(_console: Console, args: list[str]) -> bool:
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
             calls.append(args)
             return True
 

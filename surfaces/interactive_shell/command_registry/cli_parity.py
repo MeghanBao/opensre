@@ -122,12 +122,27 @@ def run_cli_command(
                 env=child_env,
             )
             exit_code = captured_result.returncode
-            print_command_output(console, captured_result.stdout or "")
-            print_command_output(console, captured_result.stderr or "", style=ERROR)
-            if captured_result.returncode != 0:
-                console.print(
-                    f"[{ERROR}]CLI command exited with non-zero code {captured_result.returncode}[/]"
-                )
+            stdout_text = captured_result.stdout or ""
+            stderr_text = captured_result.stderr or ""
+            # A bare Click group (no subcommand given) prints its own usage/subcommand
+            # listing to stderr and exits 2 -- Click's intentional, informative
+            # behaviour, not a crash. Render it as a plain hint instead of red error
+            # text, and skip the redundant "non-zero code" banner below.
+            is_bare_group_usage = (
+                captured_result.returncode == 2
+                and not stdout_text.strip()
+                and stderr_text.lstrip().startswith("Usage:")
+            )
+            if is_bare_group_usage:
+                print_command_output(console, stderr_text, style=DIM)
+            else:
+                print_command_output(console, stdout_text)
+                print_command_output(console, stderr_text, style=ERROR)
+                if captured_result.returncode != 0:
+                    console.print(
+                        f"[{ERROR}]CLI command exited with non-zero code "
+                        f"{captured_result.returncode}[/]"
+                    )
         else:
             interactive_result = subprocess.run(cmd, check=False, env=child_env)
             exit_code = interactive_result.returncode
@@ -344,23 +359,39 @@ def _cmd_messaging(session: Session, console: Console, args: list[str]) -> bool:
 
 
 def _cmd_hermes(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
-    return run_cli_command(console, ["hermes", *args])
+    # ``hermes watch`` blocks and tails logs live, so real subcommands must stay
+    # uncaptured/live-streamed. Bare invocation only prints Click's usage block
+    # (no subcommand given) — nothing to stream — so capture it to get the calm
+    # "Usage: ..." rendering from run_cli_command instead of a raw terminal dump.
+    return run_cli_command(console, ["hermes", *args], capture_output=not args)
 
 
 def _cmd_cron(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
-    return run_cli_command(console, ["cron", *args])
+    # ``cron start`` blocks running the scheduler daemon, so real subcommands must
+    # stay uncaptured/live-streamed; bare invocation is just Click's usage block.
+    return run_cli_command(console, ["cron", *args], capture_output=not args)
 
 
 def _cmd_sentry(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
     return run_cli_command(console, ["sentry", *args], capture_output=True)
 
 
-def _cmd_watchdog(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_watchdog(session: Session, console: Console, args: list[str]) -> bool:
+    # watchdog is a single leaf command (not a Click group) requiring --pid or
+    # --name; there's no sensible default to fall back to, so skip the subprocess
+    # entirely for bare invocation instead of surfacing a validation-error panel.
+    if not args:
+        console.print(f"[{DIM}]usage:[/] /watchdog --pid <pid>  or  /watchdog --name <name>")
+        session.mark_latest(ok=False, kind="slash")
+        return True
     return run_cli_command(console, ["watchdog", *args])
 
 
 def _cmd_debug(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
-    return run_cli_command(console, ["debug", *args])
+    # ``debug sentry`` just sends one synthetic event and exits, so it could stay
+    # uncaptured either way; capture bare invocation for the same calm-usage
+    # rendering as /hermes and /cron above.
+    return run_cli_command(console, ["debug", *args], capture_output=not args)
 
 
 def _cmd_misses(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001

@@ -2911,6 +2911,123 @@ class TestCliDelegatedCommands:
         assert "needs" in output
         assert usage_prefix in output
 
+    def test_guardrails_picker_runs_selected_subcommand(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the REPL is TTY-interactive, bare ``/guardrails`` must show the
+        arrow-key picker (not the plain usage-hint text) and run whatever
+        subcommand the user selects.
+        """
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        picks = iter(["rules", "done"])
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_kwargs: next(picks))
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/guardrails", Session(), Console())
+
+        assert called == [["guardrails", "rules"]]
+
+    def test_guardrails_picker_test_prompts_for_free_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Picking ``test`` (which needs a text argument, not a fixed choice)
+        must prompt for free text via ``console.input`` and forward it."""
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        picks = iter(["test", "done"])
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_kwargs: next(picks))
+        monkeypatch.setattr(Console, "input", lambda _self, *_a, **_k: "my test string")
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/guardrails", Session(), Console())
+
+        assert called == [["guardrails", "test", "my test string"]]
+
+    def test_cron_picker_remove_offers_real_task_ids(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Picking ``remove``/``run``/``logs`` must show a nested picker of
+        actual scheduled-task IDs (like ``/integrations show`` does for
+        service names), not ask the user to type an ID blind."""
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(m, "_cron_task_choices", lambda: [("abc123", "abc123  daily_summary")])
+        picks = iter(["remove", "abc123", "done"])
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_kwargs: next(picks))
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/cron", Session(), Console())
+
+        assert called == [["cron", "remove", "abc123"]]
+
+    def test_misses_picker_export_shows_help_instead_of_guessing_out_dir(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``export`` requires ``--out <dir>`` with no sane picker default, so
+        picking it must show the subcommand's own ``--help`` rather than
+        running (and failing) with a guessed directory."""
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        picks = iter(["export", "done"])
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_kwargs: next(picks))
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/misses", Session(), Console())
+
+        assert called == [["misses", "export", "--help"]]
+
+    def test_debug_bare_tty_runs_the_only_subcommand_directly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``debug`` has exactly one subcommand, so a TTY-interactive bare
+        invocation should just run it instead of showing a one-item menu."""
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/debug", Session(), Console())
+
+        assert called == [["debug", "sentry"]]
+
     def test_slash_onboard_with_args_forwards_them_to_subprocess(self, monkeypatch: object) -> None:
         """Args passed to ``/onboard`` must be forwarded to the subprocess."""
         from surfaces.interactive_shell.command_registry import cli_parity as m

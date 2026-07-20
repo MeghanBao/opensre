@@ -50,6 +50,41 @@ def restore_stdin_terminal() -> None:
         termios.tcflush(fd, termios.TCIFLUSH)  # type: ignore[attr-defined]
 
 
+# How long to wait for a byte that should immediately follow ESC (an arrow-key
+# prefix, or a CPR/DSR reply from prompt-toolkit's bottom-toolbar redraw) before
+# treating ESC as a standalone keypress. Generous enough for a laggy pty/terminal
+# multiplexer (tmux, an IDE's integrated terminal) without making a real Escape
+# press feel sluggish.
+_ESCAPE_FOLLOWUP_TIMEOUT_SECONDS = 0.15
+
+
+def _read_pending_byte_unix(fd: int, *, timeout: float = _ESCAPE_FOLLOWUP_TIMEOUT_SECONDS) -> bytes:
+    """Read one byte from ``fd`` if it arrives within ``timeout``, else ``b""``."""
+    import select as _sel
+
+    if not _sel.select([fd], [], [], timeout)[0]:
+        return b""
+    return os.read(fd, 1)
+
+
+def _drain_trailing_csi_bytes(fd: int, first: bytes = b"") -> None:
+    """Drain the remainder of a CSI-looking escape sequence.
+
+    Terminal replies we don't otherwise recognize — most commonly a delayed CPR
+    (cursor-position) reply, ``ESC[row;colR``, from prompt-toolkit's bottom-toolbar
+    redraw — must not leak into the next read (a picker keypress, or the next REPL
+    prompt) as literal characters. The VT/xterm spec defines 0x40-0x7E as valid CSI
+    final bytes, so keep reading until one shows up or nothing more arrives.
+    """
+    b = first
+    while True:
+        if not b:
+            b = _read_pending_byte_unix(fd)
+        if not b or (0x40 <= b[0] <= 0x7E):
+            return
+        b = b""
+
+
 def read_key_unix(*, also_cancel: tuple[bytes, ...] = ()) -> str:
     """Read one logical keypress in raw mode; return a normalised key name.
 
@@ -60,7 +95,6 @@ def read_key_unix(*, also_cancel: tuple[bytes, ...] = ()) -> str:
     ``also_cancel`` treats additional single-byte keys as ``"cancel"`` (e.g.
     ``(b"s", b"S")`` for an explicit skip shortcut).
     """
-    import select as _sel
     import termios
     import tty
 
@@ -84,27 +118,27 @@ def read_key_unix(*, also_cancel: tuple[bytes, ...] = ()) -> str:
             return "up"
         if ch in (b"q", b"Q"):
             return "cancel"
-        if b == 27:  # ESC or arrow-key prefix
-            if _sel.select([fd], [], [], 0.1)[0]:
-                nxt = os.read(fd, 1)
-                if nxt == b"[" and _sel.select([fd], [], [], 0.1)[0]:
-                    arr = os.read(fd, 1)
-                    if arr == b"A":
-                        return "up"
-                    if arr == b"B":
-                        return "down"
-                    if arr == b"C":
-                        return "right"
-                    if arr == b"D":
-                        return "left"
-                    # Not an arrow key — drain the rest of the CSI sequence so
-                    # bytes like "0;1R" from a CPR (ESC[row;colR) don't leak into
-                    # the next read or the prompt buffer as literal characters.
-                    # The VT/xterm spec defines 0x40–0x7E as valid CSI final bytes.
-                    while arr and not (0x40 <= arr[0] <= 0x7E):
-                        if not _sel.select([fd], [], [], 0)[0]:
-                            break
-                        arr = os.read(fd, 1)
+        if b == 27:  # ESC or arrow-key prefix (or a leaked CPR/DSR reply)
+            nxt = _read_pending_byte_unix(fd)
+            if nxt == b"[":
+                arr = _read_pending_byte_unix(fd)
+                if arr == b"A":
+                    return "up"
+                if arr == b"B":
+                    return "down"
+                if arr == b"C":
+                    return "right"
+                if arr == b"D":
+                    return "left"
+                # Not an arrow key — most likely a CPR/DSR reply; drain its tail.
+                _drain_trailing_csi_bytes(fd, arr)
+            elif nxt:
+                # An escape sequence we don't recognize — drain whatever follows
+                # rather than let it leak into the next read as literal text.
+                _drain_trailing_csi_bytes(fd, nxt)
+            # Otherwise nothing followed within the timeout: a genuine standalone
+            # Escape keypress. (A reply arriving later still is mopped up by the
+            # settle-then-drain done before the next prompt/picker read.)
             return "cancel"
         return "ignore"
     finally:

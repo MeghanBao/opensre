@@ -7,6 +7,8 @@ import re
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from surfaces.interactive_shell.ui.components import choice_menu
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;:]*[A-Za-z]")
@@ -67,12 +69,40 @@ def test_pick_ignores_unmapped_keys(monkeypatch) -> None:
     monkeypatch.setattr(sys, "stdout", out)
     monkeypatch.setattr(choice_menu, "_cols", lambda: 80)
     monkeypatch.setattr(choice_menu, "_read_action", lambda: next(actions))
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.ui.components.cpr_stdin.drain_stale_cpr_bytes",
+        lambda: None,
+    )
 
     assert choice_menu._pick(title="test", crumb="", labels=["one"]) == 0
 
     rendered = out.getvalue()
     assert rendered.count("test") == 2
     assert "A\r\x1b[J" in rendered
+
+
+@pytest.mark.parametrize("exit_action", ["enter", "cancel", "eof"])
+def test_pick_drains_stale_cpr_bytes_on_every_exit_path(monkeypatch, exit_action) -> None:
+    """A CPR reply from prompt-toolkit's bottom-toolbar redraw can still land
+    mid-picker without being fully consumed by read_key_unix's own draining
+    (e.g. split awkwardly across two separate key reads). Draining again right
+    before the picker hands control back is a second line of defense so it
+    can't leak into the next picker/prompt read as visible text.
+    """
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(choice_menu, "_cols", lambda: 80)
+    monkeypatch.setattr(choice_menu, "_read_action", lambda: exit_action)
+
+    calls: list[None] = []
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.ui.components.cpr_stdin.drain_stale_cpr_bytes",
+        lambda: calls.append(None),
+    )
+
+    choice_menu._pick(title="test", crumb="", labels=["one", "two"])
+
+    assert calls, "drain_stale_cpr_bytes was not called before _pick returned"
 
 
 def test_read_action_treats_space_as_enter(monkeypatch) -> None:

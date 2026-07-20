@@ -30,8 +30,10 @@ from surfaces.interactive_shell.ui.input_prompt.refresh import wire_prompt_refre
 from surfaces.interactive_shell.ui.input_prompt.style import refresh_prompt_theme
 
 # Brief pause so a CPR reply still in flight lands in the stdin buffer before the
-# non-blocking drain runs; without it the reply leaks into this prompt as literal bytes.
-_CPR_SETTLE_SECONDS = 0.05
+# non-blocking drain runs; without it the reply leaks into this prompt as literal
+# bytes. Long enough to cover a laggier pty (tmux, an IDE's integrated terminal)
+# than a bare local terminal, short enough to stay imperceptible before a prompt.
+_CPR_SETTLE_SECONDS = 0.08
 
 
 class PromptManager:

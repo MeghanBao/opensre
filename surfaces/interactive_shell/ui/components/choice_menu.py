@@ -191,6 +191,8 @@ def _pick(
     initial_index: int = 0,
 ) -> int | None:
     """Draw an inline menu, let user navigate, erase on exit. Returns index or None."""
+    from surfaces.interactive_shell.ui.components.cpr_stdin import drain_stale_cpr_bytes
+
     if not labels:
         return None
     idx = initial_index % len(labels)
@@ -208,9 +210,15 @@ def _pick(
         action = _read_action()
         if action == "enter":
             _erase_menu(crumb, labels)
+            # Mops up any reply (e.g. a delayed CPR from prompt-toolkit's
+            # bottom-toolbar redraw) that arrived during the picker but wasn't
+            # part of a sequence read_key_unix already recognized and drained
+            # — otherwise it leaks into the next prompt/picker read as text.
+            drain_stale_cpr_bytes()
             return idx
         if action in ("cancel", "eof"):
             _erase_menu(crumb, labels)
+            drain_stale_cpr_bytes()
             return None
         if action == "ignore":
             continue

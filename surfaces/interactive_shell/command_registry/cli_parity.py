@@ -333,11 +333,65 @@ def _cmd_tests(session: Session, console: Console, args: list[str]) -> bool:
     return run_cli_command(console, ["tests", *args], capture_output=True)
 
 
-def _cmd_guardrails(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+_GUARDRAILS_USAGE = (
+    "/guardrails audit",
+    "/guardrails init",
+    "/guardrails rules",
+    "/guardrails test",
+)
+_CRON_USAGE = (
+    "/cron list",
+    "/cron add",
+    "/cron remove <id>",
+    "/cron run <id>",
+    "/cron logs <id>",
+)
+_SENTRY_USAGE = (
+    "/sentry digest run",
+    "/sentry digest schedule list",
+    "/sentry digest schedule add",
+    "/sentry digest schedule run <id>",
+    "/sentry digest schedule remove <id>",
+    "/sentry uptime check",
+    "/sentry uptime watch list",
+    "/sentry uptime watch add",
+    "/sentry uptime watch run <id>",
+    "/sentry uptime watch remove <id>",
+)
+_MISSES_USAGE = (
+    "/misses list",
+    "/misses stats",
+    "/misses export --out <dir>",
+    "/misses convert <miss_id>",
+)
+_DEBUG_USAGE = ("/debug sentry",)
+
+
+def _print_bare_group_usage(
+    session: Session, console: Console, name: str, usage: tuple[str, ...]
+) -> bool:
+    """Show usage instead of shelling out to a bare Click group.
+
+    ``guardrails``/``cron``/``sentry``/``misses``/``debug`` are Click groups with
+    no default subcommand, so delegating a bare invocation to the CLI just hits
+    Click's usage error (exit code 2) and surfaces as a confusing
+    "CLI command exited with non-zero code 2" message. Print the same usage
+    hints ``/help`` shows instead.
+    """
+    console.print(f"[{ERROR}]{name} needs a subcommand.[/] Try one of:")
+    for line in usage:
+        console.print(f"  [bold]{line}[/bold]")
+    session.mark_latest(ok=False, kind="slash")
+    return True
+
+
+def _cmd_guardrails(session: Session, console: Console, args: list[str]) -> bool:
     # ``opensre guardrails`` and its subcommands are all non-interactive printers
     # (init/test/audit/rules just ``click.echo``). Capture so the output — and
     # Click's usage block when no subcommand is given — reaches the REPL buffer
     # instead of bypassing ``console.print`` via the child's inherited stdout FD.
+    if not args:
+        return _print_bare_group_usage(session, console, "/guardrails", _GUARDRAILS_USAGE)
     return run_cli_command(console, ["guardrails", *args], capture_output=True)
 
 
@@ -370,11 +424,15 @@ def _cmd_hermes(session: Session, console: Console, args: list[str]) -> bool:  #
     return run_cli_command(console, ["hermes", *args])
 
 
-def _cmd_cron(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_cron(session: Session, console: Console, args: list[str]) -> bool:
+    if not args:
+        return _print_bare_group_usage(session, console, "/cron", _CRON_USAGE)
     return run_cli_command(console, ["cron", *args])
 
 
-def _cmd_sentry(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_sentry(session: Session, console: Console, args: list[str]) -> bool:
+    if not args:
+        return _print_bare_group_usage(session, console, "/sentry", _SENTRY_USAGE)
     return run_cli_command(console, ["sentry", *args], capture_output=True)
 
 
@@ -382,13 +440,17 @@ def _cmd_watchdog(session: Session, console: Console, args: list[str]) -> bool: 
     return run_cli_command(console, ["watchdog", *args])
 
 
-def _cmd_debug(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_debug(session: Session, console: Console, args: list[str]) -> bool:
+    if not args:
+        return _print_bare_group_usage(session, console, "/debug", _DEBUG_USAGE)
     return run_cli_command(console, ["debug", *args])
 
 
-def _cmd_misses(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_misses(session: Session, console: Console, args: list[str]) -> bool:
     # Non-interactive printers only (list/stats/export/convert) — capture so the
     # output reaches the REPL buffer instead of the child's inherited stdout.
+    if not args:
+        return _print_bare_group_usage(session, console, "/misses", _MISSES_USAGE)
     return run_cli_command(console, ["misses", *args], capture_output=True)
 
 
@@ -434,12 +496,7 @@ COMMANDS: list[SlashCommand] = [
         "/guardrails",
         "Manage sensitive information guardrail rules.",
         _cmd_guardrails,
-        usage=(
-            "/guardrails audit",
-            "/guardrails init",
-            "/guardrails rules",
-            "/guardrails test",
-        ),
+        usage=_GUARDRAILS_USAGE,
     ),
     SlashCommand(
         "/update",
@@ -478,24 +535,13 @@ COMMANDS: list[SlashCommand] = [
         "/cron",
         "Manage cron-driven scheduled deliveries.",
         _cmd_cron,
-        usage=("/cron list", "/cron add", "/cron remove <id>", "/cron run <id>", "/cron logs <id>"),
+        usage=_CRON_USAGE,
     ),
     SlashCommand(
         "/sentry",
         "Schedule and run automated Sentry morning digests or uptime watches.",
         _cmd_sentry,
-        usage=(
-            "/sentry digest run",
-            "/sentry digest schedule list",
-            "/sentry digest schedule add",
-            "/sentry digest schedule run <id>",
-            "/sentry digest schedule remove <id>",
-            "/sentry uptime check",
-            "/sentry uptime watch list",
-            "/sentry uptime watch add",
-            "/sentry uptime watch run <id>",
-            "/sentry uptime watch remove <id>",
-        ),
+        usage=_SENTRY_USAGE,
     ),
     SlashCommand(
         "/watchdog",
@@ -508,16 +554,12 @@ COMMANDS: list[SlashCommand] = [
         "/debug",
         "run targeted runtime diagnostics",
         _cmd_debug,
+        usage=_DEBUG_USAGE,
     ),
     SlashCommand(
         "/misses",
         "Triage investigation misses and export them as benchmark scenarios.",
         _cmd_misses,
-        usage=(
-            "/misses list",
-            "/misses stats",
-            "/misses export --out <dir>",
-            "/misses convert <miss_id>",
-        ),
+        usage=_MISSES_USAGE,
     ),
 ]

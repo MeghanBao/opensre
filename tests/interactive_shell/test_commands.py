@@ -2843,16 +2843,15 @@ class TestCliDelegatedCommands:
 
     @pytest.mark.parametrize(
         "slash_input",
-        ["/guardrails", "/guardrails rules", "/guardrails --help"],
+        ["/guardrails rules", "/guardrails --help"],
     )
     def test_slash_guardrails_opts_into_output_capture(
         self, monkeypatch: object, slash_input: str
     ) -> None:
-        """Bare ``/guardrails`` (no subcommand), known subcommands, and flag-style
-        invocations must all call ``run_cli_command`` with
-        ``capture_output=True``. Without this, Click's usage block (printed for
-        the no-subcommand case) and subcommand output bypass ``console.print``
-        and never reach the REPL buffer — see issue #2388.
+        """Known subcommands and flag-style invocations must call
+        ``run_cli_command`` with ``capture_output=True``. Without this,
+        subcommand output bypasses ``console.print`` and never reaches the
+        REPL buffer — see issue #2388.
         """
         from surfaces.interactive_shell.command_registry import cli_parity as m
 
@@ -2866,6 +2865,47 @@ class TestCliDelegatedCommands:
         dispatch_slash(slash_input, Session(), Console())
 
         assert captured_kwargs == [{"capture_output": True}]
+
+    @pytest.mark.parametrize(
+        ("slash_input", "usage_prefix"),
+        [
+            ("/guardrails", "/guardrails "),
+            ("/cron", "/cron "),
+            ("/sentry", "/sentry "),
+            ("/misses", "/misses "),
+            ("/debug", "/debug "),
+        ],
+    )
+    def test_bare_group_command_shows_usage_without_delegating(
+        self, monkeypatch: object, slash_input: str, usage_prefix: str
+    ) -> None:
+        """Bare invocation of a Click-group-backed slash command (no subcommand)
+        must print its own usage hint and must NOT shell out to the CLI.
+
+        These commands (``guardrails``/``cron``/``sentry``/``misses``/``debug``)
+        are Click groups with no default subcommand, so delegating a bare
+        invocation to the CLI just hits Click's usage error (exit code 2) and
+        surfaces to the user as a confusing "CLI command exited with non-zero
+        code 2" — e.g. when selected bare from the ``/help`` picker.
+        """
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, width=200)
+        dispatch_slash(slash_input, Session(), console)
+
+        assert called == [], "bare invocation must not delegate to the CLI"
+        output = buf.getvalue()
+        assert "needs a subcommand" in output
+        assert usage_prefix in output
 
     def test_slash_onboard_with_args_forwards_them_to_subprocess(self, monkeypatch: object) -> None:
         """Args passed to ``/onboard`` must be forwarded to the subprocess."""

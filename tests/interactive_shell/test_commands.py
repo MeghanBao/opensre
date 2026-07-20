@@ -2874,19 +2874,23 @@ class TestCliDelegatedCommands:
             ("/sentry", "/sentry "),
             ("/misses", "/misses "),
             ("/debug", "/debug "),
+            ("/watchdog", "/watchdog "),
         ],
     )
     def test_bare_group_command_shows_usage_without_delegating(
         self, monkeypatch: object, slash_input: str, usage_prefix: str
     ) -> None:
-        """Bare invocation of a Click-group-backed slash command (no subcommand)
-        must print its own usage hint and must NOT shell out to the CLI.
+        """Bare invocation of a Click-group-backed slash command (no subcommand),
+        or ``/watchdog`` (which always requires ``--pid``), must print its own
+        usage hint and must NOT shell out to the CLI.
 
         These commands (``guardrails``/``cron``/``sentry``/``misses``/``debug``)
-        are Click groups with no default subcommand, so delegating a bare
-        invocation to the CLI just hits Click's usage error (exit code 2) and
-        surfaces to the user as a confusing "CLI command exited with non-zero
-        code 2" — e.g. when selected bare from the ``/help`` picker.
+        are Click groups with no default subcommand, and ``watchdog`` has no
+        sane default for its required ``--pid`` option, so delegating a bare
+        invocation to the CLI just hits a Click usage/validation error
+        (non-zero exit) and surfaces to the user as a confusing "CLI command
+        exited with non-zero code N" — e.g. when selected bare from the
+        ``/help`` picker.
         """
         from surfaces.interactive_shell.command_registry import cli_parity as m
 
@@ -2904,7 +2908,7 @@ class TestCliDelegatedCommands:
 
         assert called == [], "bare invocation must not delegate to the CLI"
         output = buf.getvalue()
-        assert "needs a subcommand" in output
+        assert "needs" in output
         assert usage_prefix in output
 
     def test_slash_onboard_with_args_forwards_them_to_subprocess(self, monkeypatch: object) -> None:

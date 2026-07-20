@@ -365,20 +365,27 @@ _MISSES_USAGE = (
     "/misses convert <miss_id>",
 )
 _DEBUG_USAGE = ("/debug sentry",)
+_WATCHDOG_USAGE = ("/watchdog --pid <pid> [--max-rss <size>] [--max-cpu <percent>]",)
 
 
 def _print_bare_group_usage(
-    session: Session, console: Console, name: str, usage: tuple[str, ...]
+    session: Session,
+    console: Console,
+    name: str,
+    usage: tuple[str, ...],
+    *,
+    needs: str = "a subcommand",
 ) -> bool:
-    """Show usage instead of shelling out to a bare Click group.
+    """Show usage instead of shelling out to a bare Click command.
 
     ``guardrails``/``cron``/``sentry``/``misses``/``debug`` are Click groups with
-    no default subcommand, so delegating a bare invocation to the CLI just hits
-    Click's usage error (exit code 2) and surfaces as a confusing
-    "CLI command exited with non-zero code 2" message. Print the same usage
-    hints ``/help`` shows instead.
+    no default subcommand, and ``watchdog`` always requires ``--pid``, so
+    delegating a bare invocation to the CLI just hits a Click usage/validation
+    error (non-zero exit) and surfaces as a confusing "CLI command exited with
+    non-zero code N" message. Print the same usage hints ``/help`` shows
+    instead.
     """
-    console.print(f"[{ERROR}]{name} needs a subcommand.[/] Try one of:")
+    console.print(f"[{ERROR}]{name} needs {needs}.[/] Try one of:")
     for line in usage:
         console.print(f"  [bold]{line}[/bold]")
     session.mark_latest(ok=False, kind="slash")
@@ -436,7 +443,11 @@ def _cmd_sentry(session: Session, console: Console, args: list[str]) -> bool:
     return run_cli_command(console, ["sentry", *args], capture_output=True)
 
 
-def _cmd_watchdog(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+def _cmd_watchdog(session: Session, console: Console, args: list[str]) -> bool:
+    if not args:
+        return _print_bare_group_usage(
+            session, console, "/watchdog", _WATCHDOG_USAGE, needs="--pid"
+        )
     return run_cli_command(console, ["watchdog", *args])
 
 
@@ -547,7 +558,7 @@ COMMANDS: list[SlashCommand] = [
         "/watchdog",
         "Monitor one process and send threshold alarms.",
         _cmd_watchdog,
-        usage=("/watchdog --pid <pid> [--max-rss <size>] [--max-cpu <percent>]",),
+        usage=_WATCHDOG_USAGE,
         examples=("/watchdog --pid 123 --max-rss 1G",),
     ),
     SlashCommand(

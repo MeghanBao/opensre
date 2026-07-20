@@ -33,6 +33,7 @@ from surfaces.interactive_shell.ui.components.choice_menu import (
     repl_section_break,
     repl_tty_interactive,
 )
+from surfaces.interactive_shell.ui.components.cpr_stdin import strip_cpr_sequences
 from surfaces.interactive_shell.utils.telemetry.turn_outcome import format_wizard_cli_outcome
 
 _UPDATE_SUBPROCESS_TIMEOUT_SECONDS = 300
@@ -428,7 +429,12 @@ def _interactive_guardrails_menu(console: Console) -> bool:
             return True
         if sub == "test":
             console.print()
-            text = console.input(f"[{HIGHLIGHT}]text to test> [/]").strip()
+            # console.input() reads raw (unlike the main REPL prompt), so a CPR
+            # reply still trickling in from the picker's own redraw isn't
+            # filtered automatically — strip it the same way before treating
+            # this as the text to test.
+            raw_text = console.input(f"[{HIGHLIGHT}]text to test> [/]")
+            text = strip_cpr_sequences(raw_text).strip()
             if not text:
                 repl_section_break(console)
                 continue

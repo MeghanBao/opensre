@@ -2960,6 +2960,34 @@ class TestCliDelegatedCommands:
 
         assert called == [["guardrails", "test", "my test string"]]
 
+    def test_guardrails_picker_test_strips_leaked_cpr_reply_from_typed_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """console.input() (unlike the main REPL prompt) reads raw, so a CPR
+        reply still trickling in from the picker's own redraw isn't filtered
+        automatically. A reply consisting only of its tail (e.g. "1R", split
+        off from "ESC[6;1R" by an earlier partial drain) must be stripped
+        before being treated as the text to test — never forwarded to the CLI
+        or treated as a real (non-empty) answer."""
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        picks = iter(["test", "done"])
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_kwargs: next(picks))
+        monkeypatch.setattr(Console, "input", lambda _self, *_a, **_k: "1R")
+
+        called: list[list[str]] = []
+
+        def _fake_run_cli_command(_console: Console, args: list[str], **_kwargs: object) -> bool:
+            called.append(args)
+            return True
+
+        monkeypatch.setattr(m, "run_cli_command", _fake_run_cli_command)
+
+        dispatch_slash("/guardrails", Session(), Console())
+
+        assert called == [], "leaked CPR text must never be forwarded as real input"
+
     def test_cron_picker_remove_offers_real_task_ids(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Picking ``remove``/``run``/``logs`` must show a nested picker of
         actual scheduled-task IDs (like ``/integrations show`` does for

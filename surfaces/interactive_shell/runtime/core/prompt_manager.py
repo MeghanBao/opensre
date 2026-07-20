@@ -33,7 +33,9 @@ from surfaces.interactive_shell.ui.input_prompt.style import refresh_prompt_them
 # non-blocking drain runs; without it the reply leaks into this prompt as literal
 # bytes. Long enough to cover a laggier pty (tmux, an IDE's integrated terminal)
 # than a bare local terminal, short enough to stay imperceptible before a prompt.
-_CPR_SETTLE_SECONDS = 0.08
+# A reply that's *still* late past this is caught by cpr_stdin.strip_cpr_sequences
+# once submitted, so this only needs to be "usually enough," not airtight.
+_CPR_SETTLE_SECONDS = 0.12
 
 
 class PromptManager:

@@ -54,8 +54,10 @@ def restore_stdin_terminal() -> None:
 # prefix, or a CPR/DSR reply from prompt-toolkit's bottom-toolbar redraw) before
 # treating ESC as a standalone keypress. Generous enough for a laggy pty/terminal
 # multiplexer (tmux, an IDE's integrated terminal) without making a real Escape
-# press feel sluggish.
-_ESCAPE_FOLLOWUP_TIMEOUT_SECONDS = 0.15
+# press feel sluggish. Even this can't fully close the race (no fixed timeout
+# can), so cpr_stdin.strip_cpr_sequences is the actual backstop — it recognizes
+# and discards a reply's tail even if it arrives too late to be drained here.
+_ESCAPE_FOLLOWUP_TIMEOUT_SECONDS = 0.25
 
 
 def _read_pending_byte_unix(fd: int, *, timeout: float = _ESCAPE_FOLLOWUP_TIMEOUT_SECONDS) -> bytes:

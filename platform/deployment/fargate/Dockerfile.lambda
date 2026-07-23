@@ -1,0 +1,16 @@
+# Control-plane Lambda image.
+#
+# Build this target from the repository root and push it into the existing
+# OpenSRE ECR repository. Deployments must reference the resulting sha256
+# digest, never a mutable tag.
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY . ${LAMBDA_TASK_ROOT}
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --target "${LAMBDA_TASK_ROOT}" ".[postgresql]"
+
+# Agent 5 owns this handler. Keeping the image definition here lets the
+# control-plane and Gateway images be built independently from one checkout.
+CMD ["gateway.control_plane.handler.lambda_handler"]
+

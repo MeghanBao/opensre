@@ -38,14 +38,18 @@ At task startup:
 
 1. ECS mounts the organization's S3 Files access point at `/workspace`.
 2. ECS supplies `ORGANIZATION_ID`, the credentials API URL, non-secret configuration,
-   and resolves the bootstrap credential from Secrets Manager.
-3. Before starting Slack, Telegram, the scheduler, or the run worker, the Gateway calls
+   and the tenant bootstrap secret ARN.
+3. The Gateway retrieves that one bootstrap value at runtime through its tenant task
+   role. It is not an ECS container secret because ECS resolves container secrets with
+   the execution role; keeping the shared execution role unable to read tenant secrets
+   preserves the isolation boundary.
+4. Before starting Slack, Telegram, the scheduler, or the run worker, the Gateway calls
    the credentials API for its server-controlled organization.
-4. The Gateway validates the response as integration-store v2.
-5. It creates `/workspace/home/.opensre` with mode `0700` and atomically replaces
+5. The Gateway validates the response as integration-store v2.
+6. It creates `/workspace/home/.opensre` with mode `0700` and atomically replaces
    `/workspace/home/.opensre/integrations.json` with mode `0600`.
-6. Existing `integrations.store` loaders read the materialized local file unchanged.
-7. Startup readiness fails closed when configured hydration fails.
+7. Existing `integrations.store` loaders read the materialized local file unchanged.
+8. Startup readiness fails closed when configured hydration fails.
 
 Neon remains authoritative. The file is a runtime materialization. MVP refresh happens
 only at task startup, so integration credential rotation requires an ECS task restart
@@ -153,9 +157,10 @@ Provisioning idempotently ensures:
 1. an S3 Files access point rooted at the organization directory;
 2. enforced tenant POSIX identity;
 3. a tenant ECS task IAM role restricted to that access-point ARN;
-4. permission to retrieve only the tenant credentials API bootstrap secret;
+4. permission to retrieve only the tenant credentials API bootstrap secret at runtime;
 5. a task definition referencing only the tenant access point, tenant task role,
-   shared execution role, and immutable Gateway image digest;
+   shared execution role, immutable Gateway image digest, and non-secret bootstrap
+   secret ARN;
 6. the S3 Files volume mounted at `/workspace`;
 7. the server-controlled environment described above;
 8. one ECS service with `desiredCount=1`;

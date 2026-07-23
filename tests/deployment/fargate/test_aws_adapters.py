@@ -250,13 +250,16 @@ def test_identity_and_filesystem_policies_enforce_access_point_isolation() -> No
             ),
         ),
     )
-    assert filesystem_policy["Statement"][0]["Condition"] == {
-        "Null": {"s3files:AccessPointArn": "true"}
+    tenant_a_allow = filesystem_policy["Statement"][0]
+    assert tenant_a_allow["Principal"] == {"AWS": TASK_ROLE_A_ARN}
+    assert tenant_a_allow["Condition"] == {
+        "StringEquals": {"s3files:AccessPointArn": ACCESS_POINT_A_ARN}
     }
     tenant_a_deny = filesystem_policy["Statement"][1]
     assert tenant_a_deny["Principal"] == {"AWS": TASK_ROLE_A_ARN}
+    assert tenant_a_deny["Action"] == "s3files:Client*"
     assert tenant_a_deny["Condition"] == {
-        "ArnNotEquals": {"s3files:AccessPointArn": ACCESS_POINT_A_ARN}
+        "StringNotEquals": {"s3files:AccessPointArn": ACCESS_POINT_A_ARN}
     }
 
     s3files = MagicMock()
@@ -266,6 +269,7 @@ def test_identity_and_filesystem_policies_enforce_access_point_isolation() -> No
         tenant_bindings=(TenantMountBinding(TASK_ROLE_A_ARN, ACCESS_POINT_A_ARN),),
     )
     document = json.loads(s3files.put_file_system_policy.call_args.kwargs["policy"])
+    assert document["Statement"][0]["Effect"] == "Allow"
     assert document["Statement"][1]["Effect"] == "Deny"
 
 

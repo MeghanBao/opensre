@@ -61,31 +61,38 @@ def build_file_system_isolation_policy(
     file_system_arn: str,
     tenant_bindings: tuple[TenantMountBinding, ...],
 ) -> dict[str, Any]:
-    """Deny access-point-free and cross-tenant mounts at the filesystem boundary.
+    """Allow each tenant access point and deny every other mount for that role.
 
-    IAM allows are additive. The resource policy therefore supplies explicit
-    denies so accidentally broad identity permissions cannot bypass isolation.
+    S3 Files validates principals when the policy is installed, so every
+    statement names a concrete task role. The allow/deny pair follows the AWS
+    access-point isolation pattern and the ``StringNotEquals`` deny also covers
+    a direct mount that omits the access-point condition key.
     """
-    statements: list[dict[str, Any]] = [
-        {
-            "Sid": "DenyMountWithoutAccessPoint",
-            "Effect": "Deny",
-            "Principal": "*",
-            "Action": list(S3_FILES_CLIENT_ACTIONS),
-            "Resource": file_system_arn,
-            "Condition": {"Null": {S3_FILES_ACCESS_POINT_CONDITION: "true"}},
-        }
-    ]
+    statements: list[dict[str, Any]] = []
     for index, binding in enumerate(tenant_bindings):
+        statements.append(
+            {
+                "Sid": f"AllowTenantAccessPoint{index + 1}",
+                "Effect": "Allow",
+                "Principal": {"AWS": binding.task_role_arn},
+                "Action": list(S3_FILES_CLIENT_ACTIONS),
+                "Resource": file_system_arn,
+                "Condition": {
+                    "StringEquals": {
+                        S3_FILES_ACCESS_POINT_CONDITION: binding.access_point_arn,
+                    }
+                },
+            }
+        )
         statements.append(
             {
                 "Sid": f"DenyTenantCrossAccessPoint{index + 1}",
                 "Effect": "Deny",
                 "Principal": {"AWS": binding.task_role_arn},
-                "Action": list(S3_FILES_CLIENT_ACTIONS),
+                "Action": "s3files:Client*",
                 "Resource": file_system_arn,
                 "Condition": {
-                    "ArnNotEquals": {
+                    "StringNotEquals": {
                         S3_FILES_ACCESS_POINT_CONDITION: binding.access_point_arn,
                     }
                 },

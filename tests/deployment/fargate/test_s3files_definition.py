@@ -55,12 +55,10 @@ def _task_definition() -> dict[str, object]:
                         "name": "OPENSRE_CREDENTIALS_API_URL",
                         "value": "https://credentials.example.invalid",
                     },
-                ],
-                "secrets": [
                     {
-                        "name": "OPENSRE_CREDENTIALS_BOOTSTRAP_TOKEN",
-                        "valueFrom": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:tenant-a",
-                    }
+                        "name": "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN",
+                        "value": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:tenant-a",
+                    },
                 ],
             }
         ],
@@ -70,6 +68,7 @@ def _task_definition() -> dict[str, object]:
                 "s3filesVolumeConfiguration": {
                     "fileSystemArn": FILE_SYSTEM_ARN,
                     "rootDirectory": "/",
+                    "transitEncryptionPort": 2049,
                     "accessPointArn": ACCESS_POINT_ARN,
                 },
             }
@@ -122,7 +121,7 @@ def test_tenant_policy_is_scoped_and_excludes_root_and_direct_s3() -> None:
                 "Effect": "Allow",
                 "Action": ["s3files:ClientMount", "s3files:ClientWrite"],
                 "Resource": FILE_SYSTEM_ARN,
-                "Condition": {"StringEquals": {"s3files:AccessPointArn": ACCESS_POINT_ARN}},
+                "Condition": {"ArnEquals": {"s3files:AccessPointArn": ACCESS_POINT_ARN}},
             }
         ],
     }

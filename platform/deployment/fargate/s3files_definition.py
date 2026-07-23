@@ -14,6 +14,7 @@ EXPECTED_ENVIRONMENT = {
     "OPENSRE_WORKSPACE": "/workspace/files",
 }
 _NON_SECRET_CREDENTIAL_ENVIRONMENT = {"OPENSRE_CREDENTIALS_API_URL"}
+_NON_SECRET_REFERENCE_ENVIRONMENT = {"OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN"}
 _SECRET_ENVIRONMENT_MARKERS = (
     "API_KEY",
     "ACCESS_KEY",
@@ -49,6 +50,7 @@ def s3files_volume(
         "s3filesVolumeConfiguration": {
             "fileSystemArn": file_system_arn,
             "rootDirectory": "/",
+            "transitEncryptionPort": 2049,
             "accessPointArn": access_point_arn,
         },
     }
@@ -106,8 +108,10 @@ def validate_task_definition(
         if environment.get(name) != value:
             raise ValueError(f"container environment must set {name}")
     for name in environment:
-        if name not in _NON_SECRET_CREDENTIAL_ENVIRONMENT and any(
-            marker in name.upper() for marker in _SECRET_ENVIRONMENT_MARKERS
+        if (
+            name not in _NON_SECRET_CREDENTIAL_ENVIRONMENT
+            and name not in _NON_SECRET_REFERENCE_ENVIRONMENT
+            and any(marker in name.upper() for marker in _SECRET_ENVIRONMENT_MARKERS)
         ):
             raise ValueError("secret-like values cannot be embedded in container environment")
 
@@ -133,11 +137,14 @@ def validate_tenant_mount_policy(
         if not actions & {"s3files:ClientMount", "s3files:ClientWrite"}:
             continue
         condition = statement.get("Condition", {})
-        equals = condition.get("StringEquals", {}) if isinstance(condition, Mapping) else {}
-        if (
-            statement.get("Effect") == "Allow"
-            and isinstance(equals, Mapping)
-            and equals.get("s3files:AccessPointArn") == access_point_arn
+        equals_conditions = (
+            (condition.get("StringEquals", {}), condition.get("ArnEquals", {}))
+            if isinstance(condition, Mapping)
+            else ()
+        )
+        if statement.get("Effect") == "Allow" and any(
+            isinstance(equals, Mapping) and equals.get("s3files:AccessPointArn") == access_point_arn
+            for equals in equals_conditions
         ):
             saw_scoped_mount = True
             continue

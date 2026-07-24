@@ -108,11 +108,13 @@ class _LeaseRenewer:
         run_id: str,
         worker_id: str,
         lease_duration: timedelta,
+        logger: logging.Logger,
     ) -> None:
         self._repository = repository
         self._run_id = run_id
         self._worker_id = worker_id
         self._lease_duration = lease_duration
+        self._logger = logger
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
@@ -130,11 +132,15 @@ class _LeaseRenewer:
     def _run(self) -> None:
         interval = max(0.05, self._lease_duration.total_seconds() / 3)
         while not self._stop.wait(interval):
-            renewed = self._repository.renew_run_lease(
-                run_id=self._run_id,
-                worker_id=self._worker_id,
-                lease_duration=self._lease_duration,
-            )
+            try:
+                renewed = self._repository.renew_run_lease(
+                    run_id=self._run_id,
+                    worker_id=self._worker_id,
+                    lease_duration=self._lease_duration,
+                )
+            except Exception as exc:
+                self._logger.warning("remote run lease renewal failed (%s)", type(exc).__name__)
+                return
             if not renewed:
                 return
 
@@ -237,6 +243,7 @@ class RemoteRunWorker:
             run_id=run.id,
             worker_id=self._worker_id,
             lease_duration=self._lease_duration,
+            logger=self._logger,
         )
         renewer.start()
         try:
@@ -249,8 +256,14 @@ class RemoteRunWorker:
                 self._logger.warning("remote run completion lost its lease")
         except Exception as exc:
             self._logger.warning("remote run failed (%s)", type(exc).__name__)
-            if not sink.persist_failure(error_code=type(exc).__name__):
-                self._logger.warning("remote run failure lost its lease")
+            try:
+                if not sink.persist_failure(error_code=type(exc).__name__):
+                    self._logger.warning("remote run failure lost its lease")
+            except Exception as persistence_exc:
+                self._logger.warning(
+                    "remote run failure persistence failed (%s)",
+                    type(persistence_exc).__name__,
+                )
         finally:
             renewer.stop()
             self._gate.release()

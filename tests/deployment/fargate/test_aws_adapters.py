@@ -295,6 +295,8 @@ def test_tenant_iam_role_receives_only_mount_write_and_bootstrap_permissions() -
         )
     }
     assert actions == {
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
         "s3files:ClientMount",
         "s3files:ClientWrite",
         "secretsmanager:GetSecretValue",
@@ -370,7 +372,9 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
     container = request["containerDefinitions"][0]
     environment = {item["name"]: item["value"] for item in container["environment"]}
     assert environment == {
+        "AWS_REGION": "eu-west-2",
         "HOME": "/workspace/home",
+        "LLM_PROVIDER": "bedrock",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": BOOTSTRAP_SECRET_ARN,
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
         "OPENSRE_SIZE_PROFILE": "SMALL",
@@ -410,7 +414,7 @@ def test_creates_and_updates_private_fargate_service() -> None:
         "awsvpcConfiguration": {
             "subnets": ["subnet-a", "subnet-b"],
             "securityGroups": ["sg-gateway"],
-            "assignPublicIp": "DISABLED",
+            "assignPublicIp": "ENABLED",
         }
     }
     assert ecs.update_service.call_args.kwargs["forceNewDeployment"] is True

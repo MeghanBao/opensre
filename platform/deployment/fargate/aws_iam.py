@@ -52,6 +52,15 @@ def build_tenant_task_policy(
                 "Action": "secretsmanager:GetSecretValue",
                 "Resource": bootstrap_secret_arn,
             },
+            {
+                "Sid": "InvokeBedrockModels",
+                "Effect": "Allow",
+                "Action": [
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream",
+                ],
+                "Resource": "*",
+            },
         ],
     }
 

@@ -14,6 +14,8 @@ _IMMUTABLE_IMAGE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64
 _ALLOWED_ENVIRONMENT = frozenset(
     {
         "HOME",
+        "AWS_REGION",
+        "LLM_PROVIDER",
         "OPENSRE_WORKSPACE",
         "ORGANIZATION_ID",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN",
@@ -93,6 +95,8 @@ class TenantEcsAdapter:
 
         environment = {
             "HOME": "/workspace/home",
+            "AWS_REGION": spec.log_region,
+            "LLM_PROVIDER": "bedrock",
             "OPENSRE_WORKSPACE": "/workspace/files",
             "ORGANIZATION_ID": spec.organization_id,
             "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": spec.bootstrap_secret_arn,
@@ -264,6 +268,9 @@ class TenantEcsAdapter:
             "awsvpcConfiguration": {
                 "subnets": list(spec.subnet_ids),
                 "securityGroups": list(spec.security_group_ids),
-                "assignPublicIp": "DISABLED",
+                # The MVP reuses public subnets and intentionally has no NAT.
+                # Gateways need outbound HTTPS for the credential vault,
+                # Neon run polling, chat transports, and LLM providers.
+                "assignPublicIp": "ENABLED",
             }
         }

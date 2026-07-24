@@ -61,12 +61,59 @@ class IntegrationStoreV2(BaseModel):
         return self.model_dump(mode="json")
 
 
+class AgentVaultRecord(BaseModel):
+    """One decrypted integration returned by the existing webapp vault."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: str = Field(min_length=1)
+    service: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    credentials: dict[str, JsonValue]
+
+
+class AgentVaultResponse(BaseModel):
+    """Current ``app.opensre.com/api/agent/integrations`` response."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    success: Literal[True]
+    data: list[AgentVaultRecord]
+
+    def as_store_v2(self) -> IntegrationStoreV2:
+        """Adapt the vault export to the canonical local integration store."""
+        return IntegrationStoreV2(
+            version=2,
+            integrations=[
+                IntegrationRecordV2(
+                    id=record.id,
+                    service=record.service,
+                    status=record.status,
+                    instances=[
+                        IntegrationInstanceV2(
+                            name=record.name,
+                            tags={},
+                            credentials=record.credentials,
+                        )
+                    ],
+                )
+                for record in self.data
+            ],
+        )
+
+
 def validate_integration_store_v2(payload: object) -> IntegrationStoreV2:
-    """Validate a credentials API response without exposing payload details."""
+    """Validate either supported credentials API response without exposing it."""
     try:
         return IntegrationStoreV2.model_validate(payload)
     except ValidationError:
-        raise CredentialsApiError("Credentials API returned an invalid credential set") from None
+        try:
+            return AgentVaultResponse.model_validate(payload).as_store_v2()
+        except ValidationError:
+            raise CredentialsApiError(
+                "Credentials API returned an invalid credential set"
+            ) from None
 
 
 class CredentialsApiClient:
@@ -78,7 +125,9 @@ class CredentialsApiClient:
         base_url: str,
         bootstrap_credential: str,
         timeout_seconds: float = 10.0,
-        endpoint_template: str = "/v1/organizations/{organization_id}/credentials",
+        endpoint_template: str = (
+            "/api/agent/integrations?organizationId={organization_id}"
+        ),
         http_client: httpx.Client | None = None,
     ) -> None:
         if not base_url.lower().startswith("https://"):

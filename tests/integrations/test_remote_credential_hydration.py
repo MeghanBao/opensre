@@ -62,7 +62,10 @@ def _client_with_transport(
 def test_client_sends_bootstrap_auth_and_escapes_organization_id() -> None:
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer bootstrap-secret"
-        assert request.url.raw_path == b"/v1/organizations/org%2Ftenant/credentials"
+        assert (
+            request.url.raw_path
+            == b"/api/agent/integrations?organizationId=org%2Ftenant"
+        )
         return httpx.Response(200, json=_valid_payload())
 
     client = _client_with_transport(httpx.MockTransport(_handler))
@@ -71,6 +74,41 @@ def test_client_sends_bootstrap_auth_and_escapes_organization_id() -> None:
 
     assert payload.version == 2
     assert payload.integrations[0].service == "grafana"
+
+
+def test_existing_webapp_vault_response_is_adapted_to_store_v2() -> None:
+    payload = {
+        "success": True,
+        "data": [
+            {
+                "id": "integration-1",
+                "service": "openai",
+                "status": "active",
+                "name": "default",
+                "credentials": {"api_key": "test-only"},
+            }
+        ],
+    }
+
+    validated = validate_integration_store_v2(payload)
+
+    assert validated.as_store_data() == {
+        "version": 2,
+        "integrations": [
+            {
+                "id": "integration-1",
+                "service": "openai",
+                "status": "active",
+                "instances": [
+                    {
+                        "name": "default",
+                        "tags": {},
+                        "credentials": {"api_key": "test-only"},
+                    }
+                ],
+            }
+        ],
+    }
 
 
 @pytest.mark.parametrize(

@@ -22,6 +22,20 @@ class ImageBuildDefinition:
     dockerfile: Path
     build_context: Path
     repository_strategy: Literal["existing"] = "existing"
+    platform: Literal["linux/amd64"] = "linux/amd64"
+    provenance: bool = False
+    sbom: bool = False
+
+    def buildx_flags(self) -> tuple[str, ...]:
+        """Return ECS-compatible Buildx flags for a single image manifest."""
+
+        return (
+            "--platform",
+            self.platform,
+            f"--provenance={str(self.provenance).lower()}",
+            f"--sbom={str(self.sbom).lower()}",
+            "--push",
+        )
 
 
 GATEWAY_IMAGE = ImageBuildDefinition(

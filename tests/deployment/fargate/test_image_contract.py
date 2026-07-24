@@ -22,6 +22,13 @@ def test_gateway_image_contains_required_runtime_tools_and_non_root_user() -> No
     assert 'CMD ["sh"' in dockerfile
     assert "USER opensre" in dockerfile
     assert "--uid 1000 --gid 1000" in dockerfile
+    assert GATEWAY_IMAGE.buildx_flags() == (
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--sbom=false",
+        "--push",
+    )
 
 
 def test_lambda_image_uses_aws_python_runtime_and_future_control_plane_handler() -> None:

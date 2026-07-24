@@ -43,6 +43,9 @@ At task startup:
    role. It is not an ECS container secret because ECS resolves container secrets with
    the execution role; keeping the shared execution role unable to read tenant secrets
    preserves the isolation boundary.
+   For the direct-Neon MVP worker, the secret may be a JSON runtime bundle containing
+   `credentials_api_token` and `database_url`. Neither value appears in the task
+   definition or logs; a raw string remains valid for hydration-only deployments.
 4. Before starting Slack, Telegram, the scheduler, or the run worker, the Gateway calls
    the credentials API for its server-controlled organization.
 5. The Gateway validates the response as integration-store v2.
@@ -72,6 +75,8 @@ HOME=/workspace/home
 OPENSRE_WORKSPACE=/workspace/files
 ORGANIZATION_ID=<organization>
 OPENSRE_CREDENTIALS_API_URL=<real configured URL>
+OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN=<tenant secret ARN>
+OPENSRE_SIZE_PROFILE=SMALL|MEDIUM|LARGE
 ```
 
 The mount preserves integration files, sessions, Gateway state, scheduler definitions,

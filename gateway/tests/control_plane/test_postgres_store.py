@@ -12,6 +12,7 @@ import pytest
 from gateway.control_plane.contracts import (
     AgentRunSource,
     AgentRunStatus,
+    DeploymentDesiredState,
     TenantApiCredential,
 )
 from gateway.control_plane.postgres_store import SCHEMA, PostgresControlPlaneStore
@@ -239,3 +240,23 @@ def test_api_credential_query_persists_only_metadata(
     assert params == (*row[:6], None)
     assert saved == credential
     assert database.gets == database.puts
+
+
+def test_count_running_deployments_can_exclude_current_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, database = _install_fake_psycopg2(monkeypatch)
+    store = PostgresControlPlaneStore("postgresql://example/db")
+    database.rows.append((2,))
+
+    count = store.count_running_deployments(exclude_organization_id="org_123")
+
+    sql, params = database.queries[-1]
+    assert "desired_state = %s" in sql
+    assert "organization_id <> %s" in sql
+    assert params == (
+        DeploymentDesiredState.RUNNING.value,
+        "org_123",
+        "org_123",
+    )
+    assert count == 2

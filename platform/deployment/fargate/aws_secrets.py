@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from platform.deployment.fargate.aws_types import SecretsManagerClient, aws_iam_tags
+
+_DISABLED_POLICY_SID = "OpenSreTenantCredentialDisabled"
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,45 @@ class TenantSecretsAdapter:
         """Update non-secret ownership tags."""
         self._client.tag_resource(SecretId=secret_arn, Tags=aws_iam_tags(tags))
 
+    def describe_secret_arn(self, secret_id: str) -> str:
+        """Resolve any managed secret identifier to its ARN without reading it."""
+        response = self._client.describe_secret(SecretId=secret_id)
+        return self._required_string(response, "ARN")
+
+    def disable_secret_access(self, secret_id: str) -> None:
+        """Add an explicit read deny while preserving unrelated resource policy."""
+        policy = self._resource_policy(secret_id)
+        statements = self._statements_without_disabled_deny(policy)
+        statements.append(
+            {
+                "Sid": _DISABLED_POLICY_SID,
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "secretsmanager:GetSecretValue",
+                "Resource": "*",
+            }
+        )
+        policy["Statement"] = statements
+        self._client.put_resource_policy(
+            SecretId=secret_id,
+            ResourcePolicy=json.dumps(policy, sort_keys=True),
+            BlockPublicPolicy=True,
+        )
+
+    def enable_secret_access(self, secret_id: str) -> None:
+        """Remove only the lifecycle-managed deny from a tenant secret."""
+        policy = self._resource_policy(secret_id)
+        statements = self._statements_without_disabled_deny(policy)
+        if statements:
+            policy["Statement"] = statements
+            self._client.put_resource_policy(
+                SecretId=secret_id,
+                ResourcePolicy=json.dumps(policy, sort_keys=True),
+                BlockPublicPolicy=True,
+            )
+        elif policy.get("Statement"):
+            self._client.delete_resource_policy(SecretId=secret_id)
+
     def secret_exists(self, secret_id: str) -> bool:
         """Return whether a secret exists, without fetching its contents."""
         try:
@@ -96,6 +138,33 @@ class TenantSecretsAdapter:
 
     def _new_bearer_token(self, key_id: str) -> str:
         return f"osre_{key_id}.{self._token_factory(32)}"
+
+    def _resource_policy(self, secret_id: str) -> dict[str, Any]:
+        response = self._client.get_resource_policy(SecretId=secret_id)
+        serialized = response.get("ResourcePolicy")
+        if serialized is None:
+            return {"Version": "2012-10-17", "Statement": []}
+        if not isinstance(serialized, str):
+            raise RuntimeError("Secrets Manager response included an invalid resource policy")
+        parsed = json.loads(serialized)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Secrets Manager response included an invalid resource policy")
+        return parsed
+
+    @staticmethod
+    def _statements_without_disabled_deny(
+        policy: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        raw_statements = policy.get("Statement", [])
+        if not isinstance(raw_statements, list):
+            raise RuntimeError("Secrets Manager resource policy has invalid statements")
+        statements: list[dict[str, Any]] = []
+        for statement in raw_statements:
+            if not isinstance(statement, dict):
+                raise RuntimeError("Secrets Manager resource policy has invalid statements")
+            if statement.get("Sid") != _DISABLED_POLICY_SID:
+                statements.append(statement)
+        return statements
 
     @staticmethod
     def _required_string(response: dict[str, Any], key: str) -> str:

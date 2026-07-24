@@ -249,6 +249,28 @@ class PostgresControlPlaneStore:
             row = cursor.fetchone()
             return _deployment_from_row(row) if row else None
 
+    def count_running_deployments(
+        self,
+        *,
+        exclude_organization_id: str | None = None,
+    ) -> int:
+        with self._connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM tenant_deployments
+                WHERE desired_state = %s
+                  AND (%s IS NULL OR organization_id <> %s)
+                """,
+                (
+                    DeploymentDesiredState.RUNNING.value,
+                    exclude_organization_id,
+                    exclude_organization_id,
+                ),
+            )
+            row = cursor.fetchone()
+            return int(row[0])
+
     def enqueue_run(
         self,
         *,

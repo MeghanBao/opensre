@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 from platform.deployment.fargate.aws_types import EcsClient, aws_tags
 
 _IMMUTABLE_IMAGE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$")
@@ -16,6 +18,7 @@ _ALLOWED_ENVIRONMENT = frozenset(
         "ORGANIZATION_ID",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN",
         "OPENSRE_CREDENTIALS_API_URL",
+        "OPENSRE_SIZE_PROFILE",
     }
 )
 _PROFILE_RESOURCES = {
@@ -56,6 +59,18 @@ class FargateServiceSpec:
     desired_count: int = 1
 
 
+@dataclass(frozen=True)
+class FargateServiceState:
+    """Observed ECS state for one tenant Gateway service."""
+
+    service_arn: str
+    task_definition_arn: str
+    desired_count: int
+    running_count: int
+    pending_count: int
+    status: str
+
+
 def validate_immutable_image(image: str) -> None:
     """Reject mutable image tags and malformed digest references."""
     if not _IMMUTABLE_IMAGE.fullmatch(image):
@@ -82,6 +97,7 @@ class TenantEcsAdapter:
             "ORGANIZATION_ID": spec.organization_id,
             "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": spec.bootstrap_secret_arn,
             "OPENSRE_CREDENTIALS_API_URL": spec.credentials_api_url,
+            "OPENSRE_SIZE_PROFILE": spec.size_profile,
         }
         if set(environment) != _ALLOWED_ENVIRONMENT:
             raise AssertionError("Task environment contains an unsupported variable")
@@ -173,6 +189,72 @@ class TenantEcsAdapter:
             forceNewDeployment=True,
             networkConfiguration=self._network_configuration(spec),
         )
+
+    def describe_service(
+        self,
+        *,
+        cluster: str,
+        service_name: str,
+    ) -> FargateServiceState | None:
+        """Return the service's observed state, or ``None`` when it is absent."""
+        response = self._ecs.describe_services(
+            cluster=cluster,
+            services=[service_name],
+        )
+        services = response.get("services")
+        if not isinstance(services, list) or not services:
+            return None
+        service = services[0]
+        if not isinstance(service, dict):
+            raise RuntimeError("ECS response included an invalid service")
+        return FargateServiceState(
+            service_arn=self._required_string(service, "serviceArn"),
+            task_definition_arn=self._required_string(service, "taskDefinition"),
+            desired_count=self._required_int(service, "desiredCount"),
+            running_count=self._required_int(service, "runningCount"),
+            pending_count=self._required_int(service, "pendingCount"),
+            status=self._required_string(service, "status"),
+        )
+
+    def task_definition_exists(self, task_definition_arn: str) -> bool:
+        """Check an immutable task-definition revision without mutating it."""
+        try:
+            self._ecs.describe_task_definition(taskDefinition=task_definition_arn)
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") == "ClientException":
+                return False
+            raise
+        return True
+
+    def delete_service(self, *, cluster: str, service_name: str) -> None:
+        """Delete only ECS compute, tolerating an already-absent service."""
+        if self.describe_service(cluster=cluster, service_name=service_name) is None:
+            return
+        self._ecs.delete_service(
+            cluster=cluster,
+            service=service_name,
+            force=True,
+        )
+
+    def deregister_task_definition(self, task_definition_arn: str) -> None:
+        """Deregister one immutable revision, tolerating an already-absent revision."""
+        if not self.task_definition_exists(task_definition_arn):
+            return
+        self._ecs.deregister_task_definition(taskDefinition=task_definition_arn)
+
+    @staticmethod
+    def _required_string(response: dict[str, Any], key: str) -> str:
+        value = response.get(key)
+        if not isinstance(value, str) or not value:
+            raise RuntimeError(f"ECS response did not include {key}")
+        return value
+
+    @staticmethod
+    def _required_int(response: dict[str, Any], key: str) -> int:
+        value = response.get(key)
+        if not isinstance(value, int):
+            raise RuntimeError(f"ECS response did not include {key}")
+        return value
 
     @staticmethod
     def _network_configuration(spec: FargateServiceSpec) -> dict[str, Any]:

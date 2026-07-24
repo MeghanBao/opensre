@@ -373,6 +373,7 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
         "HOME": "/workspace/home",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": BOOTSTRAP_SECRET_ARN,
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
+        "OPENSRE_SIZE_PROFILE": "SMALL",
         "OPENSRE_WORKSPACE": "/workspace/files",
         "ORGANIZATION_ID": "org-a",
     }
@@ -440,3 +441,52 @@ def test_secret_adapter_reads_only_metadata_and_generates_public_bearer() -> Non
     assert create["SecretString"] == credential.bearer_token
     assert create["Tags"] == [{"Key": "organization", "Value": "org-a"}]
     _validate_sdk_request("secretsmanager", "CreateSecret", create)
+
+
+def test_secret_adapter_disables_reads_with_reversible_resource_policy() -> None:
+    secrets_client = MagicMock()
+    existing_statement = {
+        "Sid": "ExistingAuditPolicy",
+        "Effect": "Allow",
+        "Principal": {"AWS": "arn:aws:iam::123456789012:role/auditor"},
+        "Action": "secretsmanager:DescribeSecret",
+        "Resource": "*",
+    }
+    secrets_client.get_resource_policy.return_value = {
+        "ResourcePolicy": json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [existing_statement],
+            }
+        )
+    }
+    adapter = TenantSecretsAdapter(secrets_client)
+
+    adapter.disable_secret_access(BOOTSTRAP_SECRET_ARN)
+
+    put_request = secrets_client.put_resource_policy.call_args.kwargs
+    policy = json.loads(put_request["ResourcePolicy"])
+    assert existing_statement in policy["Statement"]
+    disabled = next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "OpenSreTenantCredentialDisabled"
+    )
+    assert disabled["Effect"] == "Deny"
+    assert disabled["Action"] == "secretsmanager:GetSecretValue"
+    assert put_request["BlockPublicPolicy"] is True
+    _validate_sdk_request("secretsmanager", "PutResourcePolicy", put_request)
+
+    secrets_client.reset_mock()
+    secrets_client.get_resource_policy.return_value = {
+        "ResourcePolicy": json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [disabled],
+            }
+        )
+    }
+    adapter.enable_secret_access(BOOTSTRAP_SECRET_ARN)
+
+    secrets_client.delete_resource_policy.assert_called_once_with(SecretId=BOOTSTRAP_SECRET_ARN)
+    secrets_client.put_resource_policy.assert_not_called()

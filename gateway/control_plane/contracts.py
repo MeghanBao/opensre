@@ -117,6 +117,13 @@ class DeploymentRepository(Protocol):
     def get_deployment(self, organization_id: str) -> TenantDeployment | None:
         """Return the tenant deployment, if it exists."""
 
+    def count_running_deployments(
+        self,
+        *,
+        exclude_organization_id: str | None = None,
+    ) -> int:
+        """Count deployments currently requesting continuously billed compute."""
+
 
 class AgentRunRepository(Protocol):
     """Persistence port for durable, leased agent work."""

@@ -375,6 +375,7 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
         "AWS_REGION": "eu-west-2",
         "HOME": "/workspace/home",
         "LLM_PROVIDER": "bedrock",
+        "MODE": "gateway",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": BOOTSTRAP_SECRET_ARN,
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
         "OPENSRE_SIZE_PROFILE": "SMALL",

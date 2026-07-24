@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from integrations.remote_credentials import (
+from integrations.credentials_api import (
     IntegrationInstanceV2,
     IntegrationRecordV2,
     IntegrationStoreV2,

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from integrations.remote_credentials import (
+from integrations.credentials_api import (
     CredentialsApiClient,
     CredentialsApiError,
     hydrate_integration_store,

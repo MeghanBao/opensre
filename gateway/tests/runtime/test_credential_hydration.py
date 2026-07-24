@@ -17,7 +17,7 @@ from gateway.runtime.credential_hydration import (
 from gateway.runtime.errors import GatewayConfigurationError
 from gateway.runtime.manager import GatewayManager
 from integrations import store
-from integrations.remote_credentials import IntegrationStoreV2
+from integrations.credentials_api import IntegrationStoreV2
 
 
 class _Secrets:

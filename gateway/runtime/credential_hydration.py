@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from integrations.remote_credentials import CredentialsApiClient, hydrate_integration_store
+from integrations.credentials_api import CredentialsApiClient, hydrate_integration_store
 
 _ORGANIZATION_ID = "ORGANIZATION_ID"
 _API_URL = "OPENSRE_CREDENTIALS_API_URL"

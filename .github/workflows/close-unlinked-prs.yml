@@ -17,6 +17,11 @@
 # out any unlisted scope, and closingIssuesReferences resolves to Issue nodes — without it the
 # query can silently come back empty even when an issue is genuinely linked, closing a
 # correctly-linked PR.
+#
+# The job-level `if:` below is only a cheap pre-filter on the triggering event's payload — it
+# is NOT the enforcement gate. Eligibility is re-fetched fresh (one GraphQL call) immediately
+# before the close step, so a label/state change racing with a queued run can't cause an
+# already-exempt PR to be closed on stale data.
 name: Close PRs without a linked issue
 
 on:
@@ -43,21 +48,46 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'no-issue-needed') &&
       !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
     steps:
-      - name: Check for a linked issue
-        id: linked
+      - name: Re-check current PR state
+        id: current
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_FULL: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          count=$(gh pr view "$PR_NUMBER" --repo "$REPO_FULL" \
-            --json closingIssuesReferences \
-            --jq '.closingIssuesReferences | length')
-          echo "count=$count" >> "$GITHUB_OUTPUT"
+          data=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  state
+                  isDraft
+                  authorAssociation
+                  author { __typename login }
+                  labels(first: 100) { nodes { name } }
+                  closingIssuesReferences { totalCount }
+                }
+              }
+            }' -F owner="$OWNER" -F repo="$REPO" -F number="$PR_NUMBER")
+
+          eligible=$(jq -r '
+            .data.repository.pullRequest as $pr
+            | (
+              ($pr.state == "OPEN")
+              and ($pr.isDraft == false)
+              and ($pr.author.__typename != "Bot")
+              and (["OWNER", "MEMBER", "COLLABORATOR"] | index($pr.authorAssociation) | not)
+              and ([$pr.labels.nodes[].name] | index("no-issue-needed") | not)
+            )
+          ' <<<"$data")
+          linked_count=$(jq -r '.data.repository.pullRequest.closingIssuesReferences.totalCount' <<<"$data")
+
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          echo "linked_count=$linked_count" >> "$GITHUB_OUTPUT"
 
       - name: Close PR without a linked issue
-        if: steps.linked.outputs.count == '0'
+        if: steps.current.outputs.eligible == 'true' && steps.current.outputs.linked_count == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}

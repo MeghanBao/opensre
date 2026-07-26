@@ -10,6 +10,7 @@ Internal notes for repository automation under `.github/workflows/`. Not publish
 | [`ci-labels-windows.yml`](ci-labels-windows.yml) | Optional Windows CI (`ci:windows` label) |
 | [`codeql.yml`](codeql.yml) | CodeQL security analysis |
 | [`greptile-pr-reminder.yml`](greptile-pr-reminder.yml) | Greptile review nudge on PR open |
+| [`close-unlinked-prs.yml`](close-unlinked-prs.yml) | Close PRs with no linked issue (bots/drafts/`no-issue-needed` exempt) |
 | [`celebrate-merged-pr.yml`](celebrate-merged-pr.yml) | Post-merge celebration comment |
 | [`good-first-issue-assign.yml`](good-first-issue-assign.yml) | Auto-assign good first issues |
 | [`release.yml`](release.yml) | Release builds and artifacts |

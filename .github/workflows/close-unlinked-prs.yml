@@ -2,9 +2,10 @@
 # issues" graph, e.g. via `Fixes #123` in the body or the Development sidebar). Unlinked PRs
 # are closed immediately with an explanatory comment. Bot PRs, drafts, PRs labeled
 # `no-issue-needed`, and PRs opened by OWNER/MEMBER/COLLABORATOR are exempt; a draft is
-# (re)checked once it's marked ready for review, and applying/removing the exemption label
-# (`labeled` trigger) re-evaluates an already-open PR immediately instead of waiting for the
-# next edit/reopen.
+# (re)checked once it's marked ready for review, and applying or removing the exemption label
+# (`labeled`/`unlabeled` triggers) re-evaluates an already-open PR immediately instead of
+# waiting for the next edit/reopen — otherwise removing the exemption from a still-unlinked
+# PR would leave it open indefinitely.
 #
 # Uses pull_request_target (not pull_request) so the GITHUB_TOKEN has write access on PRs
 # from forks too — under plain pull_request the token is read-only for fork PRs, so
@@ -20,7 +21,7 @@ name: Close PRs without a linked issue
 
 on:
   pull_request_target:
-    types: [opened, reopened, edited, ready_for_review, labeled]
+    types: [opened, reopened, edited, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read

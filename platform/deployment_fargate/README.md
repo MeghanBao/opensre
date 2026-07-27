@@ -1,14 +1,11 @@
 # `platform/deployment_fargate/`
 
 Multi-tenant Fargate deployment for OpenSRE: control-plane Lambda, public API
-forwarder, shared fleet CDK, and the EC2 Telegram gateway lifecycle helpers that
-still live beside this package.
+forwarder, and shared fleet CDK.
 
-EC2 AWS SDK primitives live in [`../deployment_ec2/`](../deployment_ec2/).
-
-**Scope: Telegram only for EC2.** Slack is deployed and operated separately, not from
-this repo. The EC2 path here never ships `SLACK_*` variables: Socket Mode is
-single-consumer, so a second gateway holding the same tokens would split events.
+EC2 AWS SDK primitives and the Telegram gateway AMI/systemd lifecycle live in
+[`../deployment_ec2/`](../deployment_ec2/)
+([`telegram_gateway/`](../deployment_ec2/telegram_gateway/)).
 
 ## Three deployment entities
 
@@ -39,60 +36,23 @@ The control-plane Lambda entry point is
 
 See [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md) and [`.env.fargate-fleet.example`](../../.env.fargate-fleet.example).
 
-## EC2 gateway deploy
+## Related: EC2 Telegram gateway
+
+The AMI + systemd Telegram gateway deploy path lives in
+[`../deployment_ec2/telegram_gateway/`](../deployment_ec2/telegram_gateway/).
+Makefile targets: `make bake-gateway`, `make deploy-gateway`, `make destroy-gateway`.
+
+Shared helpers still in this package:
 
 | Path | Purpose |
 | --- | --- |
-| [`../deployment_ec2/`](../deployment_ec2/) | EC2 gateway AWS SDK primitives (`client`, `config`, EC2/IAM, SSM). |
-| [`gateway/`](gateway/) | AMI + systemd deployment path for the Telegram gateway. See [gateway/README.md](gateway/README.md). |
 | [`utils/`](utils/) | Shared helpers: EC2 deploy env validation (`prep_ec2_deployment`), health polling, existing-infrastructure validation. |
 
 The Slack backend (web API + Slack gateway) is **not** in this repo — it is
 deployed and operated separately.
 
-## EC2 deploy commands
-
-Run from the **repo root**. Requires `make install` first.
-
-| Command | What it does |
-| --- | --- |
-| `make bake-gateway` | Launch temp EC2, install OpenSRE, snapshot AMI, save AMI id locally |
-| `make deploy-gateway` | Destroy any prior stack, launch EC2 from saved AMI, write env, start service |
-| `make destroy-gateway` | Terminate instance, delete IAM profile/role; AMI kept by default |
-| `make deploy-gateway-direct` | Install inline on a fresh EC2 instance via SSM (no pre-baked AMI) |
-| `make destroy-gateway-direct` | Tear down a direct-deploy stack |
-
-Equivalent Python entrypoints:
-
-```bash
-uv run python -m platform.deployment_fargate.gateway.lifecycle bake-ami
-uv run python -m platform.deployment_fargate.gateway.lifecycle deploy
-uv run python -m platform.deployment_fargate.gateway.lifecycle destroy
-```
-
-### Prerequisites
-
-1. **AWS credentials** — static keys or role via the default boto3 chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or `AWS_ROLE_ARN`).
-2. **Permissions** — EC2, IAM, and SSM for the deploy account/region.
-3. **Region** — hardcoded to `us-east-1` in [`aws/config.py`](aws/config.py).
-
-### Environment
-
-Gateway deploy commands validate required variables **before** cleanup or provisioning and print
-any missing keys (with `MISSING:` / `WARN:` labels).
-
-Copy [`.env.deploy.example`](../../.env.deploy.example) to `.env` in the repo root (or export vars):
-
-| Variable | Required | Used by |
-| --- | --- | --- |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes (or role) | Provisioning |
-| `TELEGRAM_BOT_TOKEN` | Yes | Gateway service |
-| `TELEGRAM_ALLOWED_USERS` | Recommended | Gateway pairing gate |
-| `LLM_PROVIDER` + API key | Yes | Gateway service |
-| `EC2_KEY_NAME` | No | Optional SSH debug key pair |
-
-`SLACK_*` variables are ignored by the EC2 deploy (warning at validation) —
-Slack is deployed and operated separately, not from this repo.
+For gateway env vars and deploy prerequisites, see
+[telegram_gateway/README.md](../deployment_ec2/telegram_gateway/README.md).
 
 ### E2E test infrastructure (separate from gateway deploy)
 

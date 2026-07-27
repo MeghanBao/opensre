@@ -553,7 +553,7 @@ RULES: tuple[PathRule, ...] = (
             "tests/platform/deployment_fargate/test_ec2_launch_instance.py",
             "tests/platform/deployment_fargate/test_ec2_security_group.py",
             "tests/platform/deployment_fargate/test_ec2_stack_instances.py",
-            "tests/platform/deployment_fargate/deploy_gateway/",
+            "tests/platform/deployment_ec2/telegram_gateway/",
         ),
     ),
     PathRule(

@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from platform.deployment_fargate.gateway import provision as provision_module
-from platform.deployment_fargate.gateway.provision import provision_gateway_via_ssm
+from platform.deployment_ec2.telegram_gateway import provision as provision_module
+from platform.deployment_ec2.telegram_gateway.provision import provision_gateway_via_ssm
 
 _INSTANCE_ID = "i-gateway1234567890"
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
 def test_provision_writes_env_file_and_restarts_service(mock_ssm):
     """provision_gateway_via_ssm() writes the env file and restarts opensre-gateway."""
     mock_ssm.return_value = {"status": "Success", "stderr": ""}
@@ -37,7 +37,7 @@ def test_provision_writes_env_file_and_restarts_service(mock_ssm):
     assert "opensre-gateway" in joined
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
 def test_provision_secrets_not_in_plain_commands(mock_ssm):
     """Sensitive values must not appear as plain text in the SSM command list."""
     mock_ssm.return_value = {"status": "Success", "stderr": ""}
@@ -53,7 +53,7 @@ def test_provision_secrets_not_in_plain_commands(mock_ssm):
     assert secret_token not in joined
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
 def test_provision_adds_mode_gateway(mock_ssm):
     """provision_gateway_via_ssm() always injects MODE=gateway into the env file."""
     mock_ssm.return_value = {"status": "Success", "stderr": ""}
@@ -75,7 +75,7 @@ def test_provision_adds_mode_gateway(mock_ssm):
     assert "MODE=gateway" in decoded
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
 def test_provision_raises_on_ssm_failure(mock_ssm):
     """provision_gateway_via_ssm() raises RuntimeError on SSM failure."""
     mock_ssm.return_value = {"status": "Failed", "stderr": "something broke"}
@@ -84,8 +84,8 @@ def test_provision_raises_on_ssm_failure(mock_ssm):
         provision_gateway_via_ssm(_INSTANCE_ID, env_vars={})
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
-@patch("platform.deployment_fargate.gateway.provision.time.sleep", return_value=None)
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.time.sleep", return_value=None)
 def test_wait_for_gateway_ready_returns_when_active_and_sentinel(mock_sleep, mock_ssm):
     """wait_for_gateway_ready() returns once the service is active and logs the sentinel."""
     mock_ssm.return_value = {
@@ -99,8 +99,8 @@ def test_wait_for_gateway_ready_returns_when_active_and_sentinel(mock_sleep, moc
     assert mock_ssm.call_count >= 1
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
-@patch("platform.deployment_fargate.gateway.provision.time.sleep", return_value=None)
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.time.sleep", return_value=None)
 def test_wait_for_gateway_ready_accepts_slack_sentinel(mock_sleep, mock_ssm):
     """Legacy Slack Socket Mode log line still satisfies the ready wait."""
     mock_ssm.return_value = {
@@ -114,8 +114,8 @@ def test_wait_for_gateway_ready_accepts_slack_sentinel(mock_sleep, mock_ssm):
     assert mock_ssm.call_count >= 1
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
-@patch("platform.deployment_fargate.gateway.provision.time.sleep", return_value=None)
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.time.sleep", return_value=None)
 def test_wait_for_gateway_ready_accepts_telegram_sentinel(mock_sleep, mock_ssm):
     """Legacy Telegram polling log line still satisfies the ready wait."""
     mock_ssm.return_value = {
@@ -129,8 +129,8 @@ def test_wait_for_gateway_ready_accepts_telegram_sentinel(mock_sleep, mock_ssm):
     assert mock_ssm.call_count >= 1
 
 
-@patch("platform.deployment_fargate.gateway.provision.run_ssm_shell_command")
-@patch("platform.deployment_fargate.gateway.provision.time.sleep", return_value=None)
+@patch("platform.deployment_ec2.telegram_gateway.provision.run_ssm_shell_command")
+@patch("platform.deployment_ec2.telegram_gateway.provision.time.sleep", return_value=None)
 def test_wait_for_gateway_ready_raises_on_timeout(mock_sleep, mock_ssm):
     """wait_for_gateway_ready() raises TimeoutError when sentinel never appears."""
     mock_ssm.return_value = {

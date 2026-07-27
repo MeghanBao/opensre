@@ -28,13 +28,13 @@ from platform.deployment_ec2.ec2 import (
     wait_for_running,
 )
 from platform.deployment_ec2.ssm import wait_for_ssm_registration
-from platform.deployment_fargate.gateway.bake import bake_ami
-from platform.deployment_fargate.gateway.direct_deploy import deploy_direct, destroy_direct
-from platform.deployment_fargate.gateway.provision import (
+from platform.deployment_ec2.telegram_gateway.bake import bake_ami
+from platform.deployment_ec2.telegram_gateway.direct_deploy import deploy_direct, destroy_direct
+from platform.deployment_ec2.telegram_gateway.provision import (
     provision_gateway_via_ssm,
     wait_for_gateway_ready,
 )
-from platform.deployment_fargate.gateway.stack import (
+from platform.deployment_ec2.telegram_gateway.stack import (
     ami_id_exists,
     delete_outputs,
     get_stack,

@@ -15,7 +15,8 @@ Initial areas:
 - `analytics/` owns product and runtime analytics.
 - `common/` owns small shared helpers that do not belong to a runtime subsystem.
 - `cloudflare_install_proxy/` owns the Cloudflare Worker for `install.opensre.com`.
-- `deployment/` owns EC2 provisioning (`aws/` primitives, gateway AMI deploy). Makefile: `make deploy-gateway`.
+- `deployment_ec2/` owns EC2 AWS primitives and Telegram gateway AMI/systemd deploy (`telegram_gateway/`). Makefile: `make deploy-gateway`.
+- `deployment_fargate/` owns Fargate control plane, public API forwarder, and shared fleet CDK.
 - `notifications/` owns notification delivery transports and channel-specific senders.
 - `observability/` owns logging, tracing, progress, debug output, and runtime
   display ports.

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import platform.deployment_fargate.gateway.stack as stack_module
+import platform.deployment_ec2.telegram_gateway.stack as stack_module
 from platform.deployment_ec2.config import GATEWAY_AMI_GIT_REF_ENV
-from platform.deployment_fargate.gateway import bake as bake_module
+from platform.deployment_ec2.telegram_gateway import bake as bake_module
 
 _FAKE_INSTANCE_ID = "i-builder1234567890"
 _FAKE_AMI_ID = "ami-0abc1234567890def"

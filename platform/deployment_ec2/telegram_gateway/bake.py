@@ -27,7 +27,7 @@ from platform.deployment_ec2.ec2 import (
     wait_for_running,
 )
 from platform.deployment_ec2.ssm import run_ssm_shell_command, wait_for_ssm_registration
-from platform.deployment_fargate.gateway.stack import (
+from platform.deployment_ec2.telegram_gateway.stack import (
     GatewayStack,
     get_stack,
     save_ami_id,

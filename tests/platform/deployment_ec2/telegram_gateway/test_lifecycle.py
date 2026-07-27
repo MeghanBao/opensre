@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import platform.deployment_fargate.gateway.stack as stack_module
+import platform.deployment_ec2.telegram_gateway.stack as stack_module
 from platform.deployment_ec2.config import GATEWAY_AMI_DESTROY_PURGE_ENV, GATEWAY_AMI_ID_ENV
-from platform.deployment_fargate.gateway import lifecycle as lifecycle_module
+from platform.deployment_ec2.telegram_gateway import lifecycle as lifecycle_module
 
 _FAKE_AMI_ID = "ami-0abc1234567890def"
 _FAKE_INSTANCE_ID = "i-gateway1234567890"

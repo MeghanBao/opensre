@@ -1,4 +1,4 @@
-# `platform/deployment_fargate/gateway/`
+# `platform/deployment_ec2/telegram_gateway/`
 
 AMI + systemd deployment path for the OpenSRE **Telegram** gateway (long
 polling). Slack is deployed and operated separately, not from this repo.
@@ -30,9 +30,9 @@ Run from the **repo root** (`make install` first).
 Equivalent Python entrypoints:
 
 ```bash
-uv run python -m platform.deployment_fargate.gateway.lifecycle bake-ami
-uv run python -m platform.deployment_fargate.gateway.lifecycle deploy
-uv run python -m platform.deployment_fargate.gateway.lifecycle destroy
+uv run python -m platform.deployment_ec2.telegram_gateway.lifecycle bake-ami
+uv run python -m platform.deployment_ec2.telegram_gateway.lifecycle deploy
+uv run python -m platform.deployment_ec2.telegram_gateway.lifecycle destroy
 ```
 
 ### Prerequisites

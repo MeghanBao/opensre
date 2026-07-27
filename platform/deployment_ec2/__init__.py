@@ -1,1 +1,1 @@
-"""EC2 gateway deployment AWS SDK primitives (boto3 client, EC2/IAM, SSM)."""
+"""EC2 deployment: AWS SDK primitives and Telegram gateway AMI/systemd lifecycle."""

@@ -30,7 +30,7 @@ from platform.deployment_ec2.ec2 import (
     wait_for_running,
 )
 from platform.deployment_ec2.ssm import run_ssm_shell_command, wait_for_ssm_registration
-from platform.deployment_fargate.gateway.provision import (
+from platform.deployment_ec2.telegram_gateway.provision import (
     provision_gateway_via_ssm,
     wait_for_gateway_ready,
 )

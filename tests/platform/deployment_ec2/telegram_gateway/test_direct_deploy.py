@@ -1,4 +1,4 @@
-"""Tests for platform.deployment_fargate.gateway.direct_deploy."""
+"""Tests for platform.deployment_ec2.telegram_gateway.direct_deploy."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import platform.deployment_fargate.gateway.direct_deploy as direct_module
+import platform.deployment_ec2.telegram_gateway.direct_deploy as direct_module
 from platform.deployment_ec2.config import EC2_UBUNTU_ROOT_DEVICE_NAME
 
 _INSTANCE_ID = "i-direct123"

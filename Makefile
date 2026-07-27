@@ -287,21 +287,21 @@ docs-dev:
 # Gateway deploy (Telegram; AMI + systemd on EC2)
 # Step 1 — bake once per code change (launches temp EC2, installs opensre, snapshots AMI):
 bake-gateway:
-	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle bake-ami
+	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle bake-ami
 
 # Step 2 — launch gateway instance from pre-baked AMI (fast):
 deploy-gateway:
-	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle deploy
+	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle deploy
 
 destroy-gateway:
-	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle destroy
+	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle destroy
 
 # Gateway direct deploy (no pre-baked AMI — installs inline via SSM)
 deploy-gateway-direct:
-	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle deploy-direct
+	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle deploy-direct
 
 destroy-gateway-direct:
-	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle destroy-direct
+	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle destroy-direct
 
 # Shared Fargate fleet (Python CDK) — see platform/deployment_fargate/fargate_fleet_infrastructure/README.md
 CDK_DIR = platform/deployment_fargate/fargate_fleet_infrastructure

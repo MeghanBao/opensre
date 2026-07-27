@@ -14,9 +14,9 @@ export
 	deploy-dd-monitors cleanup-dd-monitors deploy-eks destroy-eks \
 	trigger-alert trigger-alert-verify regen-trigger-config \
 	prefect-local-test run dev docs-dev \
-	build-image deploy destroy test-deploy \
 	bake-gateway deploy-gateway destroy-gateway \
 	deploy-gateway-direct destroy-gateway-direct \
+	cdk-synth cdk-diff cdk-deploy cdk-destroy cdk-verify \
 	deploy-lambda deploy-prefect deploy-flink destroy-lambda destroy-prefect destroy-flink \
 	test test-full test-cov test-scope test-cli-smoke test-turn-live test-grafana \
 	rabbitmq-local-up rabbitmq-local-down test-rabbitmq-real \
@@ -279,40 +279,44 @@ docs-dev:
 	cd docs && mint dev
 
 
-# Deploy all test case infrastructure in parallel (SDK - fast!)
-# EC2 deploy (web + gateway containers on one instance)
-# Step 1 — build once per code change, saves URI locally for reuse:
-build-image:
-	$(PYTHON) -m platform.deployment.ecr_deploy.lifecycle build-image
-
-# Step 2 — launch instance using the pre-built image (fast, no Docker build):
-deploy:
-	$(PYTHON) -m platform.deployment.ecr_deploy.lifecycle deploy
-
-destroy:
-	$(PYTHON) -m platform.deployment.ecr_deploy.lifecycle destroy
-
-test-deploy:
-	$(PYTHON) -m pytest tests/deployment/ec2/ -v -s
-
-# Gateway deploy (Telegram and/or Slack Socket Mode; no Docker/ECR)
+# Gateway deploy (Telegram; AMI + systemd on EC2)
 # Step 1 — bake once per code change (launches temp EC2, installs opensre, snapshots AMI):
 bake-gateway:
-	$(PYTHON) -m platform.deployment.gateway.lifecycle bake-ami
+	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle bake-ami
 
 # Step 2 — launch gateway instance from pre-baked AMI (fast):
 deploy-gateway:
-	$(PYTHON) -m platform.deployment.gateway.lifecycle deploy
+	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle deploy
 
 destroy-gateway:
-	$(PYTHON) -m platform.deployment.gateway.lifecycle destroy
+	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle destroy
 
 # Gateway direct deploy (no pre-baked AMI — installs inline via SSM)
 deploy-gateway-direct:
-	$(PYTHON) -m platform.deployment.gateway.lifecycle deploy-direct
+	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle deploy-direct
 
 destroy-gateway-direct:
-	$(PYTHON) -m platform.deployment.gateway.lifecycle destroy-direct
+	$(PYTHON) -m platform.deployment_fargate.gateway.lifecycle destroy-direct
+
+# Shared Fargate fleet (Python CDK) — see platform/deployment_fargate/fargate_fleet_infrastructure/README.md
+CDK_DIR = platform/deployment_fargate/fargate_fleet_infrastructure
+CDK = cd $(CDK_DIR) && uv run --extra cdk cdk
+
+cdk-synth:
+	$(CDK) synth
+
+cdk-diff:
+	$(CDK) diff
+
+cdk-deploy:
+	$(CDK) deploy OpensreFargateFleet --require-approval never
+
+cdk-destroy:
+	$(CDK) destroy OpensreFargateFleet --force
+
+cdk-verify:
+	uv run --extra cdk pytest tests/platform/deployment_fargate/fargate_fleet_infrastructure/ -q
+	cd $(CDK_DIR) && PYTHONPATH=../../.. uv run --extra cdk python -m platform.deployment_fargate.fargate_fleet_infrastructure.app
 
 # Deploy Lambda test case
 deploy-lambda:
@@ -483,16 +487,17 @@ check: lint format-check typecheck check-imports test-full
 help:
 	@echo "Available commands:"
 	@echo ""
-	@echo "  EC2 DEPLOY (Docker/ECR — web + gateway)"
-	@echo "  make build-image       - Build and push Docker image to ECR (run once per code change)"
-	@echo "  make deploy            - Launch EC2 instance using pre-built image (fast, no Docker build)"
-	@echo "  make destroy           - Terminate EC2 instance and clean up (keeps ECR image; OPENSRE_DESTROY_PURGE_ECR=1 to also delete it)"
-	@echo "  make test-deploy       - Run EC2 deployment e2e tests"
-	@echo ""
-	@echo "  GATEWAY DEPLOY (systemd, no Docker — gateway only)"
+	@echo "  GATEWAY DEPLOY (EC2 — AMI + systemd)"
 	@echo "  make bake-gateway    - Bake a gateway AMI (run once per code change; saves AMI id locally)"
 	@echo "  make deploy-gateway  - Launch gateway EC2 instance from pre-baked AMI (fast)"
 	@echo "  make destroy-gateway - Terminate gateway instance and clean up (set OPENSRE_GATEWAY_DESTROY_PURGE_AMI=1 to also deregister AMI)"
+	@echo ""
+	@echo "  FARGATE FLEET (Python CDK — shared cluster/SG/logs/execution role)"
+	@echo "  make cdk-synth       - Synthesize the shared Fargate fleet CloudFormation template"
+	@echo "  make cdk-diff        - Diff deployed stack against local template"
+	@echo "  make cdk-deploy      - Deploy shared Fargate fleet (pass CDK parameters for VPC/subnets/etc.)"
+	@echo "  make cdk-destroy     - Destroy shared Fargate fleet stack"
+	@echo "  make cdk-verify      - Run CDK synth tests (no AWS credentials required)"
 	@echo ""
 	@echo "  E2E TEST INFRA (AWS SDK)"
 	@echo "  make deploy-lambda     - Deploy Lambda stack (~50s)"

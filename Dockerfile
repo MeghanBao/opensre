@@ -3,8 +3,6 @@
 #   MODE=web      - FastAPI web API (health, alerts, async investigations)
 #   MODE=gateway  - Two-way messaging gateway (Slack Socket Mode + Telegram)
 #
-# EC2 deploy (make deploy) runs both as separate containers on one instance.
-#
 # Web mode usage:
 #   docker build -t opensre:latest .
 #   docker run -p 8000:8000 --env-file .env opensre:latest

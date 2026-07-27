@@ -7,8 +7,8 @@ import threading
 from collections.abc import Callable
 
 from core.agent_harness.session import SessionCore
-from gateway.control_plane.contracts import SizeProfile
 from gateway.runtime.sink_protocol import GatewayAgentCallback, GatewaySink
+from platform.deployment_fargate.control_plane.contracts import SizeProfile
 
 _PROFILE_LIMITS = {
     SizeProfile.SMALL: 1,

@@ -201,10 +201,10 @@ integrated in two waves of three.
 Focused tests:
 
 ```bash
-uv run pytest gateway/tests/control_plane/test_contracts.py gateway/tests/control_plane/test_postgres_store.py tests/integrations/test_remote_credential_hydration.py tests/integrations/test_store.py
-uv run pytest tests/deployment/fargate/test_aws_adapters.py
-uv run pytest tests/deployment/fargate/test_image_contract.py tests/deployment/fargate/test_s3files_definition.py
-uv run pytest tests/deployment/fargate/test_s3files_live.py
+uv run pytest tests/deployment/control_plane/test_api/test_contracts.py tests/deployment/control_plane/test_api/test_postgres_store.py tests/integrations/test_remote_credential_hydration.py tests/integrations/test_store.py
+uv run pytest tests/deployment/control_plane/test_aws_adapters.py
+uv run pytest tests/deployment/control_plane/test_image_contract.py tests/deployment/control_plane/test_s3files_definition.py
+uv run pytest tests/deployment/control_plane/test_s3files_live.py
 ```
 
 Wave 2 begins only after the real-AWS S3 Files gate passes in the deployment
@@ -225,8 +225,8 @@ environment.
 Focused tests:
 
 ```bash
-uv run pytest tests/deployment/fargate/test_lifecycle.py
-uv run pytest gateway/tests/control_plane/test_authorizer.py gateway/tests/control_plane/test_handler.py gateway/tests/control_plane/test_bootstrap.py
+uv run pytest tests/deployment/control_plane/test_lifecycle.py
+uv run pytest tests/deployment/control_plane/test_api/test_authorizer.py tests/deployment/control_plane/test_api/test_handler.py tests/deployment/control_plane/test_api/test_bootstrap.py
 uv run pytest gateway/tests/runtime/test_credential_hydration.py gateway/tests/runtime/test_remote_run_worker.py gateway/tests/runtime/test_concurrency_gate.py gateway/tests/runtime/test_manager.py gateway/tests/runtime/test_turn_handler.py
 ```
 
@@ -240,7 +240,7 @@ make format-check
 make typecheck
 make test-scope
 make verify-integrations
-uv run pytest gateway/tests/control_plane gateway/tests/runtime/test_credential_hydration.py gateway/tests/runtime/test_remote_run_worker.py tests/deployment/fargate
+uv run pytest tests/deployment/control_plane gateway/tests/runtime/test_credential_hydration.py gateway/tests/runtime/test_remote_run_worker.py
 ```
 
 Real-AWS acceptance rotates any previously exposed Neon credential, provisions two

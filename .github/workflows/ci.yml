@@ -7,7 +7,7 @@ on:
       - "surfaces/**"
       - "config/**"
       - "core/**"
-      - "platform/deployment/**"
+      - "platform/deployment_fargate/**"
       - "integrations/**"
       - "platform/**"
       - "tools/**"
@@ -29,7 +29,7 @@ on:
       - "surfaces/**"
       - "config/**"
       - "core/**"
-      - "platform/deployment/**"
+      - "platform/deployment_fargate/**"
       - "integrations/**"
       - "platform/**"
       - "tools/**"
@@ -247,7 +247,7 @@ jobs:
           ${{ matrix.pytest_paths }}
           --cov=config
           --cov=core
-          --cov=platform.deployment.aws --cov=platform.deployment
+          --cov=platform.deployment_ec2 --cov=platform.deployment_fargate
           --cov=integrations
           --cov=platform
           --cov=surfaces
@@ -378,7 +378,7 @@ jobs:
               - ".github/workflows/ci.yml"
               - "pyproject.toml"
               - "uv.lock"
-              - "platform/deployment/**"
+              - "platform/deployment_fargate/**"
               - "integrations/**"
               - "tools/investigation/**"
               - "tools/**"

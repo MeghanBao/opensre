@@ -137,6 +137,10 @@ postgresql = [
 azure_sql = [
     "pyodbc>=5.1.0,<6.0.0",
 ]
+cdk = [
+    "aws-cdk-lib>=2.170.0",
+    "constructs>=10.3.0",
+]
 
 [tool.setuptools.packages.find]
 include = [

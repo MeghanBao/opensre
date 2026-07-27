@@ -8,7 +8,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from gateway.control_plane.contracts import (
+from platform.deployment_fargate.control_plane.contracts.contracts import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,

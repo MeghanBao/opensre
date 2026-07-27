@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from gateway.control_plane.contracts import SizeProfile
+from platform.deployment_fargate.control_plane.contracts.contracts import SizeProfile
 from gateway.runtime.concurrency import (
     ConcurrencyLimitedTurnHandler,
     TurnConcurrencyGate,

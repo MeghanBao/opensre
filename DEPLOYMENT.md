@@ -1,69 +1,33 @@
 ## Deployment
 
-OpenSRE has three deployment paths and a general hosted runtime option for
+OpenSRE has two primary AWS EC2 paths and a general hosted runtime option for
 ASGI-compatible platforms:
 
 - **Slack** — deployed and operated separately, not from this repo. The EC2
-  paths below never ship `SLACK_*` variables (Socket Mode is single-consumer —
+  path below never ships `SLACK_*` variables (Socket Mode is single-consumer —
   a second consumer would split events).
-- **Telegram** — the two EC2 paths below.
+- **Telegram** — the EC2 gateway deploy below.
 
 ---
 
-## EC2 Deploy — Docker/ECR (web + gateway)
+## Gateway Deploy — AMI + systemd (Telegram)
 
-Runs `opensre-web` and `opensre-gateway` as Docker containers on a single EC2 instance.
-The image is built once and pushed to ECR; subsequent redeploys reuse the cached image.
+Runs the Telegram gateway directly on EC2 as a systemd service. The gateway is
+baked into a custom AMI once; subsequent deploys launch from that AMI in ~2–3
+minutes.
 
-**Prerequisites:** Docker daemon running locally, AWS credentials with EC2 / ECR / IAM /
-SSM permissions, region defaults to `us-east-1`.
+**Prerequisites:** AWS credentials with EC2 / IAM / SSM permissions. No Docker needed.
 
 Copy [`.env.deploy.example`](.env.deploy.example) and export the required variables:
 
 | Variable | Required | Used by |
 | -------- | -------- | ------- |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes (or role) | Provisioning |
-| `TELEGRAM_BOT_TOKEN` | Yes | Gateway container |
+| `TELEGRAM_BOT_TOKEN` | Yes | Gateway service |
 | `TELEGRAM_ALLOWED_USERS` | Recommended | Gateway pairing gate |
-| `LLM_PROVIDER` + API key | Yes | Both containers |
+| `LLM_PROVIDER` + API key | Yes | Gateway service |
 
 `SLACK_*` variables are ignored by the EC2 deploy (validation warns) — Slack is deployed and operated separately, not from this repo.
-
-```bash
-# Step 1 — build and push Docker image to ECR (run once per code change):
-make build-image
-
-# Step 2 — launch EC2 instance using the pre-built image (fast, no Docker build):
-make deploy
-
-# Tear down the stack (keeps ECR image by default):
-make destroy
-
-# Full teardown including ECR repository:
-OPENSRE_DESTROY_PURGE_ECR=1 make destroy
-```
-
-After deploy:
-
-```bash
-curl http://<PublicIpAddress>:8000/health
-```
-
-Outputs (instance ID, public IP, image URI) are written to
-`~/.opensre/deployments/opensre-ec2.json`.
-
-`make deploy` auto-destroys any existing stack before provisioning a fresh one. Set
-`OPENSRE_DEPLOY_ABORT_IF_EXISTS=1` to fail instead of auto-destroying.
-
----
-
-## Gateway Deploy — AMI + systemd (Telegram)
-
-Runs the Telegram gateway directly on EC2 as a systemd service — no Docker or ECR
-required. The gateway is baked into a custom AMI once; subsequent
-deploys launch from that AMI in ~2–3 minutes.
-
-**Prerequisites:** AWS credentials with EC2 / IAM / SSM permissions. No Docker needed.
 
 ```bash
 # Step 1 — bake a gateway AMI (run once per code change, takes ~5-10 minutes):
@@ -115,15 +79,47 @@ make destroy-gateway-direct
 
 ---
 
-## Comparison
+## Fargate multi-tenant fleet (Python CDK)
 
-|  | Docker/ECR (`make deploy`) | Gateway (`make deploy-gateway`) |
-| - | - | - |
-| What deploys | web + gateway containers | gateway service only |
-| Runtime | Docker inside EC2 | systemd on EC2 host |
-| Shell access | Inside slim container | Full EC2 host |
-| ECR repository | Required | Not needed |
-| Update path | `make build-image && make deploy` | `make bake-gateway && make deploy-gateway` |
+The shared ECS Fargate foundation (cluster, outbound-only security group, CloudWatch
+log group, ECS execution role) is defined as **infrastructure as code** under
+[`platform/deployment_fargate/fargate_fleet_infrastructure/`](platform/deployment_fargate/fargate_fleet_infrastructure/).
+
+Per-organization Gateway services, task definitions, tenant IAM roles, secrets, and
+S3 Files access points are still created by the Python control-plane reconciler
+([`platform/deployment_fargate/api_control_plane/`](platform/deployment_fargate/api_control_plane/)).
+
+### Prerequisites
+
+1. Existing VPC and **private** subnet IDs for Gateway tasks.
+2. Existing S3 Files filesystem ID/ARN, ECR gateway image (digest-pinned), and credentials API URL.
+3. `uv sync --extra cdk` and AWS CDK CLI v2 (**2.1133.0+**; `npm install -g aws-cdk@2`).
+4. One-time `cdk bootstrap` in the target account/region.
+
+### Deploy shared fleet
+
+```bash
+make cdk-synth    # validate template locally
+make cdk-deploy   # deploy (pass VPC/subnet/filesystem/image parameters — see infrastructure README)
+```
+
+Copy stack outputs into the control-plane Lambda environment using
+[`.env.fargate-fleet.example`](.env.fargate-fleet.example) as a template.
+
+Verify without AWS credentials:
+
+```bash
+make cdk-verify
+```
+
+Tear down:
+
+```bash
+make cdk-destroy
+```
+
+See [`platform/deployment_fargate/fargate_fleet_infrastructure/README.md`](platform/deployment_fargate/fargate_fleet_infrastructure/README.md)
+for parameter details and example `cdk deploy` invocations.
 
 ---
 

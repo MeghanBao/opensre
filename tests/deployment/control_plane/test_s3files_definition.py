@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from integrations.credentials_api import CredentialsApiError
-from platform.deployment_fargate.api_control_plane.build.s3files_definition import (
+from platform.deployment_fargate.api_control_plane.image_contracts.s3files_definition import (
     validate_task_definition,
     validate_tenant_mount_policy,
 )

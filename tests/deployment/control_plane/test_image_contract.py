@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from platform.deployment_fargate.api_control_plane.build.images import (
+from platform.deployment_fargate.api_control_plane.image_contracts.images import (
     CONTROL_PLANE_LAMBDA,
     GATEWAY_IMAGE,
     require_immutable_ecr_image,

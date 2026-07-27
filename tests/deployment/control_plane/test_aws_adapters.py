@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from botocore.validate import validate_parameters
 
 from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
@@ -223,6 +224,51 @@ def test_creates_s3_files_resources_with_tenant_root_and_posix_identity() -> Non
         "CreateAccessPoint",
         s3files.create_access_point.call_args.kwargs,
     )
+
+
+def test_reuses_matching_s3_files_access_point_after_idempotency_conflict() -> None:
+    s3files = MagicMock()
+    s3files.create_access_point.side_effect = ClientError(
+        {"Error": {"Code": "ConflictException", "Message": "already exists"}},
+        "CreateAccessPoint",
+    )
+    s3files.list_access_points.return_value = {
+        "accessPoints": [
+            {
+                "accessPointId": "ap-other",
+                "accessPointArn": ACCESS_POINT_B_ARN,
+                "status": "available",
+                "posixUser": {"uid": 10002, "gid": 10002},
+                "rootDirectory": {"path": "/organizations/org-b"},
+            },
+            {
+                "accessPointId": "ap-a",
+                "accessPointArn": ACCESS_POINT_A_ARN,
+                "status": "available",
+                "posixUser": {"uid": 10001, "gid": 10001},
+                "rootDirectory": {
+                    "path": "/organizations/org-a",
+                    "creationPermissions": {
+                        "ownerUid": 10001,
+                        "ownerGid": 10001,
+                        "permissions": "0700",
+                    },
+                },
+            },
+        ]
+    }
+
+    access_point = S3FilesAdapter(s3files).create_tenant_access_point(
+        file_system_id="fs-123",
+        organization_id="org-a",
+        uid=10001,
+        gid=10001,
+        client_token="org-a-v1",
+        tags={"organization": "org-a"},
+    )
+
+    assert access_point.access_point_arn == ACCESS_POINT_A_ARN
+    s3files.list_access_points.assert_called_once_with(fileSystemId="fs-123")
 
 
 def test_identity_and_filesystem_policies_enforce_access_point_isolation() -> None:

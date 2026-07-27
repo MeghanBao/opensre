@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 from platform.deployment_fargate.api_control_plane.aws_adapters.iam import (
     TenantMountBinding,
     build_file_system_isolation_policy,
@@ -82,24 +84,77 @@ class S3FilesAdapter:
         tags: dict[str, str],
     ) -> S3FilesAccessPoint:
         """Create an access point enforcing tenant root and POSIX identity."""
-        response = self._client.create_access_point(
-            fileSystemId=file_system_id,
-            clientToken=client_token,
-            posixUser={"uid": uid, "gid": gid},
-            rootDirectory={
-                "path": f"/organizations/{organization_id}",
-                "creationPermissions": {
-                    "ownerUid": uid,
-                    "ownerGid": gid,
-                    "permissions": "0700",
-                },
+        root_directory = {
+            "path": f"/organizations/{organization_id}",
+            "creationPermissions": {
+                "ownerUid": uid,
+                "ownerGid": gid,
+                "permissions": "0700",
             },
-            tags=aws_tags(tags),
-        )
+        }
+        try:
+            response = self._client.create_access_point(
+                fileSystemId=file_system_id,
+                clientToken=client_token,
+                posixUser={"uid": uid, "gid": gid},
+                rootDirectory=root_directory,
+                tags=aws_tags(tags),
+            )
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") != "ConflictException":
+                raise
+            existing = self._find_tenant_access_point(
+                file_system_id=file_system_id,
+                root_directory=root_directory,
+                uid=uid,
+                gid=gid,
+            )
+            if existing is None:
+                raise
+            return existing
         return S3FilesAccessPoint(
             access_point_id=self._required_string(response, "accessPointId"),
             access_point_arn=self._required_string(response, "accessPointArn"),
         )
+
+    def _find_tenant_access_point(
+        self,
+        *,
+        file_system_id: str,
+        root_directory: dict[str, Any],
+        uid: int,
+        gid: int,
+    ) -> S3FilesAccessPoint | None:
+        next_token: str | None = None
+        while True:
+            request: dict[str, Any] = {"fileSystemId": file_system_id}
+            if next_token is not None:
+                request["nextToken"] = next_token
+            response = self._client.list_access_points(**request)
+            access_points = response.get("accessPoints")
+            if not isinstance(access_points, list):
+                return None
+            for access_point in access_points:
+                if (
+                    isinstance(access_point, dict)
+                    and access_point.get("rootDirectory") == root_directory
+                    and access_point.get("posixUser") == {"uid": uid, "gid": gid}
+                    and access_point.get("status") != "deleted"
+                ):
+                    return S3FilesAccessPoint(
+                        access_point_id=self._required_string(
+                            access_point,
+                            "accessPointId",
+                        ),
+                        access_point_arn=self._required_string(
+                            access_point,
+                            "accessPointArn",
+                        ),
+                    )
+            token = response.get("nextToken")
+            if not isinstance(token, str) or not token:
+                return None
+            next_token = token
 
     def put_isolation_policy(
         self,

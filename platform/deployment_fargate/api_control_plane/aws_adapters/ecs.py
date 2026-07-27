@@ -233,6 +233,34 @@ class TenantEcsAdapter:
             raise
         return True
 
+    def task_definition_uses_image(
+        self,
+        task_definition_arn: str,
+        image: str,
+    ) -> bool:
+        """Return whether the Gateway container uses the configured immutable image."""
+        validate_immutable_image(image)
+        try:
+            response = self._ecs.describe_task_definition(taskDefinition=task_definition_arn)
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") == "ClientException":
+                return False
+            raise
+        task_definition = response.get("taskDefinition")
+        containers = (
+            task_definition.get("containerDefinitions")
+            if isinstance(task_definition, dict)
+            else None
+        )
+        if not isinstance(containers, list):
+            return False
+        return any(
+            isinstance(container, dict)
+            and container.get("name") == "gateway"
+            and container.get("image") == image
+            for container in containers
+        )
+
     def delete_service(self, *, cluster: str, service_name: str) -> None:
         """Delete only ECS compute, tolerating an already-absent service."""
         if self.describe_service(cluster=cluster, service_name=service_name) is None:

@@ -392,6 +392,27 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
     _validate_sdk_request("ecs", "RegisterTaskDefinition", request)
 
 
+def test_task_definition_image_match_checks_gateway_container() -> None:
+    image = _task_spec().image
+    task_definition_arn = "arn:aws:ecs:eu-west-2:123456789012:task-definition/opensre-org-a:1"
+    ecs = MagicMock()
+    ecs.describe_task_definition.return_value = {
+        "taskDefinition": {
+            "containerDefinitions": [
+                {"name": "sidecar", "image": "example.invalid/sidecar:latest"},
+                {"name": "gateway", "image": image},
+            ]
+        }
+    }
+    adapter = TenantEcsAdapter(ecs)
+
+    assert adapter.task_definition_uses_image(task_definition_arn, image)
+    assert not adapter.task_definition_uses_image(
+        task_definition_arn,
+        "123456789012.dkr.ecr.eu-west-2.amazonaws.com/opensre@sha256:" + ("b" * 64),
+    )
+
+
 def test_creates_and_updates_private_fargate_service() -> None:
     ecs = MagicMock()
     ecs.create_service.return_value = {

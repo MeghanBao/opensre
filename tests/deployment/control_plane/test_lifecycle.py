@@ -238,7 +238,7 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
 
 def test_repeated_provision_reuses_task_service_and_public_secret() -> None:
     lifecycle, _, s3_files, iam, secrets, ecs = _provisioned()
-    ecs.task_definition_exists.return_value = True
+    ecs.task_definition_uses_image.return_value = True
     ecs.describe_service.return_value = FargateServiceState(
         service_arn=SERVICE_ARN,
         task_definition_arn=TASK_DEFINITION_ARN,
@@ -280,7 +280,7 @@ def test_active_organization_cap_blocks_new_compute_but_not_reconciliation() -> 
         clock=lambda: NOW,
     )
     lifecycle.provision_gateway("org-a")
-    ecs.task_definition_exists.return_value = True
+    ecs.task_definition_uses_image.return_value = True
     ecs.describe_service.return_value = FargateServiceState(
         service_arn=SERVICE_ARN,
         task_definition_arn=TASK_DEFINITION_ARN,
@@ -346,6 +346,27 @@ def test_size_change_registers_new_revision_and_updates_service() -> None:
     assert ecs.register_gateway_task_definition.call_count == 2
     ecs.update_service.assert_called_once()
     assert ecs.update_service.call_args.args[0].task_definition_arn.endswith(":2")
+
+
+def test_image_change_registers_new_revision_and_updates_service() -> None:
+    lifecycle, _, _, _, secrets, ecs = _provisioned()
+    ecs.task_definition_uses_image.return_value = False
+    ecs.register_gateway_task_definition.return_value = TASK_DEFINITION_ARN.replace(":1", ":2")
+    ecs.describe_service.return_value = FargateServiceState(
+        service_arn=SERVICE_ARN,
+        task_definition_arn=TASK_DEFINITION_ARN,
+        desired_count=1,
+        running_count=1,
+        pending_count=0,
+        status="ACTIVE",
+    )
+    secrets.secret_exists.return_value = True
+
+    result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+
+    assert result.deployment.task_definition_arn.endswith(":2")
+    assert ecs.register_gateway_task_definition.call_count == 2
+    ecs.update_service.assert_called_once()
 
 
 def test_stop_and_start_are_idempotent_desired_count_changes() -> None:

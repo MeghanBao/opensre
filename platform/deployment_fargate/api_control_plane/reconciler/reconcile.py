@@ -427,7 +427,10 @@ class TenantGatewayReconciler:
             and existing.s3_filesystem_arn == self._config.file_system_arn
             and existing.s3_access_point_arn == access_point_arn
             and existing.bootstrap_secret_arn == bootstrap_secret_arn
-            and self._ecs.task_definition_exists(existing.task_definition_arn)
+            and self._ecs.task_definition_uses_image(
+                existing.task_definition_arn,
+                self._config.gateway_image,
+            )
         ):
             return existing.task_definition_arn
         return self._ecs.register_gateway_task_definition(

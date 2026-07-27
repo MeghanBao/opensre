@@ -10,7 +10,7 @@ from typing import Any
 
 from gateway.runtime.concurrency import TurnConcurrencyGate
 from gateway.runtime.remote_run_worker import RemoteRunWorker
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,
@@ -39,7 +39,7 @@ class _Repository:
         self.finished: list[dict[str, Any]] = []
         self.done = threading.Event()
 
-    def claim_next_run(
+    def claim_oldest_available_agent_run(
         self,
         *,
         organization_id: str,
@@ -51,7 +51,7 @@ class _Repository:
         claimed, self.queued = self.queued, None
         return claimed
 
-    def renew_run_lease(
+    def extend_owned_agent_run_lease(
         self,
         *,
         run_id: str,
@@ -62,7 +62,7 @@ class _Repository:
         self.renewals += 1
         return True
 
-    def finish_run(self, **values: Any) -> bool:
+    def finalize_owned_agent_run(self, **values: Any) -> bool:
         self.finished.append(values)
         self.done.set()
         return True

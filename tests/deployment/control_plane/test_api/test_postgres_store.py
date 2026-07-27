@@ -9,15 +9,13 @@ from typing import Any
 
 import pytest
 
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.db import SCHEMA
+from platform.deployment_fargate.api_control_plane.db.db_client import ControlPlaneDbClient
+from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRunSource,
     AgentRunStatus,
     DeploymentDesiredState,
     TenantApiCredential,
-)
-from platform.deployment_fargate.api_control_plane.store.postgres_store import (
-    SCHEMA,
-    PostgresControlPlaneStore,
 )
 
 
@@ -125,14 +123,14 @@ def test_schema_supports_metadata_only_credentials_dedup_and_leases() -> None:
     assert "plaintext" not in SCHEMA
 
 
-def test_enqueue_is_idempotent_for_stable_source_event(
+def test_enqueue_agent_run_is_idempotent_for_stable_source_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, database = _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
     database.rows.append(_run_row())
 
-    run = store.enqueue_run(
+    run = store.enqueue_agent_run(
         organization_id="org_123",
         source=AgentRunSource.API,
         source_event_id="event_123",
@@ -152,14 +150,14 @@ def test_enqueue_is_idempotent_for_stable_source_event(
     assert run.id == "run_123"
 
 
-def test_claim_is_tenant_scoped_lease_based_and_skip_locked(
+def test_claim_oldest_available_agent_run_is_tenant_scoped_lease_based_and_skip_locked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, database = _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
     database.rows.append(_run_row(status=AgentRunStatus.RUNNING))
 
-    claimed = store.claim_next_run(
+    claimed = store.claim_oldest_available_agent_run(
         organization_id="org_123",
         worker_id="worker_123",
         lease_duration=timedelta(seconds=45),
@@ -185,11 +183,11 @@ def test_non_positive_lease_is_rejected_before_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, database = _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
     query_count = len(database.queries)
 
     with pytest.raises(ValueError, match="positive"):
-        store.claim_next_run(
+        store.claim_oldest_available_agent_run(
             organization_id="org_123",
             worker_id="worker_123",
             lease_duration=timedelta(0),
@@ -198,12 +196,14 @@ def test_non_positive_lease_is_rejected_before_query(
     assert len(database.queries) == query_count
 
 
-def test_finish_requires_terminal_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finalize_owned_agent_run_requires_terminal_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
 
     with pytest.raises(ValueError, match="terminal"):
-        store.finish_run(
+        store.finalize_owned_agent_run(
             run_id="run_123",
             worker_id="worker_123",
             status=AgentRunStatus.RUNNING,
@@ -214,7 +214,7 @@ def test_api_credential_query_persists_only_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, database = _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
     now = datetime.now(UTC)
     row = (
         "key_123",
@@ -235,7 +235,7 @@ def test_api_credential_query_persists_only_metadata(
         updated_at=now,
     )
 
-    saved = store.save_api_credential(credential)
+    saved = store.upsert_tenant_api_credential(credential)
 
     sql, params = database.queries[-1]
     assert "secret_arn" in sql
@@ -245,14 +245,16 @@ def test_api_credential_query_persists_only_metadata(
     assert database.gets == database.puts
 
 
-def test_count_running_deployments_can_exclude_current_organization(
+def test_count_deployments_with_running_desired_state_can_exclude_current_organization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, database = _install_fake_psycopg2(monkeypatch)
-    store = PostgresControlPlaneStore("postgresql://example/db")
+    store = ControlPlaneDbClient("postgresql://example/db")
     database.rows.append((2,))
 
-    count = store.count_running_deployments(exclude_organization_id="org_123")
+    count = store.count_deployments_with_running_desired_state(
+        exclude_organization_id="org_123",
+    )
 
     sql, params = database.queries[-1]
     assert "desired_state = %s" in sql

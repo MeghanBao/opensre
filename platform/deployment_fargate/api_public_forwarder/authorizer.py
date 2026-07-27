@@ -7,10 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
-    TenantApiCredential,
-    TenantApiCredentialRepository,
-)
+from platform.deployment_fargate.api_control_plane.utils.models import TenantApiCredential
+from platform.deployment_fargate.api_control_plane.utils.ports import TenantApiCredentialRepository
 
 _BEARER_PATTERN = re.compile(
     r"^osre_(?P<key_id>[A-Za-z0-9_-]{8,64})\.(?P<secret>[A-Za-z0-9_-]{32,256})$"
@@ -65,7 +63,7 @@ class BearerAuthorizer:
         if match is None:
             return None
 
-        credential = self._credentials.get_api_credential(match.group("key_id"))
+        credential = self._credentials.fetch_tenant_api_credential_by_key_id(match.group("key_id"))
         if not _credential_can_authorize(credential):
             return None
 

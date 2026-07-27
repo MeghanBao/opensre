@@ -38,9 +38,6 @@ ignore_imports =
     platform.scheduler.executor -> integrations.slack.delivery
     platform.scheduler.executor -> integrations.telegram.delivery
     platform.scheduler.executor -> integrations.telegram.formatting
-    # platform -> integrations (T-4 debt — Fargate S3 Files verification harness)
-    platform.deployment_fargate.api_control_plane.verification.setup_task -> integrations.credentials_api
-    platform.deployment_fargate.api_control_plane.verification.setup_task -> integrations.store
     # surfaces -> gateway (cli + repl gateway commands)
     surfaces.cli.commands.gateway -> gateway.runtime.daemon
     surfaces.cli.gateway_entry -> gateway.runtime.manager

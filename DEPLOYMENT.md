@@ -86,7 +86,7 @@ log group, ECS execution role) is defined as **infrastructure as code** under
 [`platform/deployment_fargate/fargate_fleet_infrastructure/`](platform/deployment_fargate/fargate_fleet_infrastructure/).
 
 Per-organization Gateway services, task definitions, tenant IAM roles, secrets, and
-S3 Files access points are still created by the Python control-plane reconciler
+S3 Files access points are still created by the Python control-plane lifecycle
 ([`platform/deployment_fargate/api_control_plane/`](platform/deployment_fargate/api_control_plane/)).
 
 ### Prerequisites

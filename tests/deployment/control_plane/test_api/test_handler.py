@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from platform.deployment_fargate.api_control_plane.api.bootstrap import LambdaApp
-from platform.deployment_fargate.api_control_plane.api.handler import ControlPlaneApi
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+import pytest
+
+from platform.deployment_fargate.api_control_plane.handler import ControlPlaneApi
+from platform.deployment_fargate.api_control_plane.runtime import LambdaApp
+from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,
@@ -38,7 +40,7 @@ class _CredentialStore:
             updated_at=now,
         )
 
-    def get_api_credential(self, key_id: str) -> TenantApiCredential | None:
+    def fetch_tenant_api_credential_by_key_id(self, key_id: str) -> TenantApiCredential | None:
         return self.credential if key_id == self.credential.key_id else None
 
 
@@ -52,7 +54,7 @@ class _Runs:
         self.enqueued: list[dict[str, Any]] = []
         self.runs: dict[str, AgentRun] = {}
 
-    def enqueue_run(self, **kwargs: Any) -> AgentRun:
+    def enqueue_agent_run(self, **kwargs: Any) -> AgentRun:
         self.enqueued.append(kwargs)
         now = datetime.now(UTC)
         run = AgentRun(
@@ -69,7 +71,7 @@ class _Runs:
         self.runs[run.id] = run
         return run
 
-    def get_run(self, run_id: str) -> AgentRun | None:
+    def fetch_agent_run_by_id(self, run_id: str) -> AgentRun | None:
         return self.runs.get(run_id)
 
 
@@ -205,6 +207,50 @@ def test_lifecycle_requires_allowed_iam_principal_and_provisions_default_profile
     assert payload["deployment"]["organization_id"] == "org_123"
     assert payload["api_credential"] == _TOKEN
     assert response["headers"]["cache-control"] == "no-store"
+
+
+def test_lifecycle_routes_delegate_to_operation_methods() -> None:
+    api = _control_plane_api()
+    gateway_path = "/v1/organizations/org_123/gateway"
+
+    for method, path in (
+        ("GET", gateway_path),
+        ("POST", f"{gateway_path}/start"),
+        ("POST", f"{gateway_path}/stop"),
+        ("DELETE", gateway_path),
+    ):
+        route_response = api.handle(_event(method, path, iam=True))
+        assert route_response["statusCode"] == 200
+        assert _payload(route_response)["deployment"]["organization_id"] == "org_123"
+
+    rotate_response = api.handle(
+        _event(
+            "POST",
+            "/v1/organizations/org_123/api-credential/rotate",
+            iam=True,
+        )
+    )
+    assert rotate_response["statusCode"] == 200
+    assert _payload(rotate_response) == {
+        "key_id": "key_rotated1",
+        "api_credential": _TOKEN,
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/v1/organizations/org_123/gateway"),
+        ("GET", "/v1/organizations/org_123/gateway/start"),
+        ("DELETE", "/v1/organizations/org_123/gateway/stop"),
+        ("PUT", "/v1/organizations/org_123/api-credential/rotate"),
+    ],
+)
+def test_lifecycle_routes_reject_unsupported_methods(method: str, path: str) -> None:
+    response = _control_plane_api().handle(_event(method, path, iam=True))
+
+    assert response["statusCode"] == 405
+    assert _payload(response) == {"error": "method_not_allowed"}
 
 
 def test_run_organization_comes_only_from_authorizer_context() -> None:

@@ -9,34 +9,36 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
+from platform.deployment_fargate.api_control_plane.aws.ecs import (
     FargateServiceState,
     TenantEcsAdapter,
 )
-from platform.deployment_fargate.api_control_plane.aws_adapters.iam import TenantIamAdapter
-from platform.deployment_fargate.api_control_plane.aws_adapters.s3_files import (
+from platform.deployment_fargate.api_control_plane.aws.iam import TenantIamAdapter
+from platform.deployment_fargate.api_control_plane.aws.s3_files import (
     S3FilesAccessPoint,
     S3FilesAdapter,
 )
-from platform.deployment_fargate.api_control_plane.aws_adapters.secrets import (
+from platform.deployment_fargate.api_control_plane.aws.secrets_manager import (
     TenantPublicApiCredential,
-    TenantSecretsAdapter,
+    TenantSecretsManagerAdapter,
 )
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.methods.fargate_container_service import (
+    FargateContainerLifecycle,
+)
+from platform.deployment_fargate.api_control_plane.methods.lifecycle_errors import (
+    LifecycleCapacityError,
+    LifecycleOperationError,
+    LifecycleValidationError,
+)
+from platform.deployment_fargate.api_control_plane.utils.get_fleet_config import (
+    TenantFleetConfig,
+)
+from platform.deployment_fargate.api_control_plane.utils.models import (
     DeploymentActualState,
     DeploymentDesiredState,
     SizeProfile,
     TenantApiCredential,
     TenantDeployment,
-)
-from platform.deployment_fargate.api_control_plane.reconciler.config import TenantFleetConfig
-from platform.deployment_fargate.api_control_plane.reconciler.errors import (
-    LifecycleCapacityError,
-    LifecycleOperationError,
-    LifecycleValidationError,
-)
-from platform.deployment_fargate.api_control_plane.reconciler.reconcile import (
-    TenantGatewayReconciler,
 )
 
 NOW = datetime(2026, 7, 24, 12, tzinfo=UTC)
@@ -62,21 +64,33 @@ class MemoryLifecycleRepository:
         self.deployments: dict[str, TenantDeployment] = {}
         self.credentials: dict[str, TenantApiCredential] = {}
 
-    def save_deployment(self, deployment: TenantDeployment) -> TenantDeployment:
+    def upsert_tenant_deployment(self, deployment: TenantDeployment) -> TenantDeployment:
         self.deployments[deployment.organization_id] = deployment
         return deployment
 
-    def get_deployment(self, organization_id: str) -> TenantDeployment | None:
+    def fetch_tenant_deployment_by_organization_id(
+        self,
+        organization_id: str,
+    ) -> TenantDeployment | None:
         return self.deployments.get(organization_id)
 
-    def save_api_credential(self, credential: TenantApiCredential) -> TenantApiCredential:
+    def upsert_tenant_api_credential(
+        self,
+        credential: TenantApiCredential,
+    ) -> TenantApiCredential:
         self.credentials[credential.key_id] = credential
         return credential
 
-    def get_api_credential(self, key_id: str) -> TenantApiCredential | None:
+    def fetch_tenant_api_credential_by_key_id(
+        self,
+        key_id: str,
+    ) -> TenantApiCredential | None:
         return self.credentials.get(key_id)
 
-    def disable_api_credentials(self, organization_id: str) -> int:
+    def disable_active_tenant_api_credentials_for_organization(
+        self,
+        organization_id: str,
+    ) -> int:
         disabled = 0
         for key_id, credential in tuple(self.credentials.items()):
             if credential.organization_id == organization_id and credential.enabled:
@@ -88,7 +102,7 @@ class MemoryLifecycleRepository:
                 disabled += 1
         return disabled
 
-    def count_running_deployments(
+    def count_deployments_with_running_desired_state(
         self,
         *,
         exclude_organization_id: str | None = None,
@@ -149,7 +163,7 @@ def _dependencies() -> tuple[
     )
     iam = MagicMock(spec=TenantIamAdapter)
     iam.ensure_task_role.return_value = TASK_ROLE_ARN
-    secrets = MagicMock(spec=TenantSecretsAdapter)
+    secrets = MagicMock(spec=TenantSecretsManagerAdapter)
     secrets.describe_secret_arn.side_effect = lambda secret_id: (
         PUBLIC_SECRET_ARN if "public-api" in secret_id else BOOTSTRAP_SECRET_ARN
     )
@@ -172,8 +186,8 @@ def _lifecycle(
     iam: MagicMock,
     secrets: MagicMock,
     ecs: MagicMock,
-) -> TenantGatewayReconciler:
-    return TenantGatewayReconciler(
+) -> FargateContainerLifecycle:
+    return FargateContainerLifecycle(
         config=_config(),
         repository=repository,
         s3_files=s3_files,
@@ -185,7 +199,7 @@ def _lifecycle(
 
 
 def _provisioned() -> tuple[
-    TenantGatewayReconciler,
+    FargateContainerLifecycle,
     MemoryLifecycleRepository,
     MagicMock,
     MagicMock,
@@ -270,7 +284,7 @@ def test_repeated_provision_reuses_task_service_and_public_secret() -> None:
 def test_active_organization_cap_blocks_new_compute_but_not_reconciliation() -> None:
     repository, s3_files, iam, secrets, ecs = _dependencies()
     config = replace(_config(), max_active_organizations=1)
-    lifecycle = TenantGatewayReconciler(
+    lifecycle = FargateContainerLifecycle(
         config=config,
         repository=repository,
         s3_files=s3_files,
@@ -312,7 +326,7 @@ def test_active_organization_cap_is_checked_when_restarting_stopped_tenant() -> 
         desired_state=DeploymentDesiredState.RUNNING,
         actual_state=DeploymentActualState.RUNNING,
     )
-    lifecycle = TenantGatewayReconciler(
+    lifecycle = FargateContainerLifecycle(
         config=replace(_config(), max_active_organizations=1),
         repository=repository,
         s3_files=s3_files,
@@ -502,7 +516,7 @@ def test_rejects_organization_ids_that_could_escape_resource_names() -> None:
 def test_zero_argument_factory_uses_real_environment_and_standard_aws_clients(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import platform.deployment_fargate.api_control_plane.reconciler.reconcile as lifecycle_module
+    import platform.deployment_fargate.api_control_plane.methods.fargate_container_service as lifecycle_module
 
     _factory_environment(monkeypatch)
     repository = MemoryLifecycleRepository()
@@ -523,12 +537,12 @@ def test_zero_argument_factory_uses_real_environment_and_standard_aws_clients(
         clients.append((service, region))
         return object()
 
-    monkeypatch.setattr(lifecycle_module, "PostgresControlPlaneStore", store)
-    monkeypatch.setattr(lifecycle_module, "get_boto3_client", client)
+    monkeypatch.setattr(lifecycle_module, "ControlPlaneDbClient", store)
+    monkeypatch.setattr(lifecycle_module, "create_boto3_client", client)
 
-    lifecycle = lifecycle_module.create_reconciler_from_environment()
+    lifecycle = lifecycle_module.create_fargate_container_lifecycle_from_environment()
 
-    assert isinstance(lifecycle, TenantGatewayReconciler)
+    assert isinstance(lifecycle, FargateContainerLifecycle)
     assert database_urls == ["postgresql://neon.example/opensre"]
     assert initialize_schema_values == [False]
     assert clients == [

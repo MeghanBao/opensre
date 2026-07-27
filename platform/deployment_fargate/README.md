@@ -15,7 +15,7 @@ folders as other entities gain IaC).
 
 | Entity | Path | Purpose |
 | --- | --- | --- |
-| **Control plane** | [`api_control_plane/`](api_control_plane/) | Lambda lifecycle provisioning (IAM-protected `/v1/organizations/.../gateway` routes), tenant reconciliation, AWS adapters, image build contracts, and verification harnesses. |
+| **Control plane** | [`api_control_plane/`](api_control_plane/) | Lambda lifecycle provisioning (IAM-protected `/v1/organizations/.../gateway` routes), tenant lifecycle, AWS adapters, and image build contracts. |
 | **Public API** | [`api_public_forwarder/`](api_public_forwarder/) | Bearer-authorizer-backed `/v1/runs` routes extracted from the Lambda handler. |
 | **Shared fleet (IaC)** | [`fargate_fleet_infrastructure/`](fargate_fleet_infrastructure/) | Python CDK stack for ECS cluster, gateway security group, log group, and execution role. |
 | **Gateway runtime** | [`../../gateway/`](../../gateway/) | Tenant Gateway process (Fargate task or legacy EC2/systemd). |
@@ -23,7 +23,7 @@ folders as other entities gain IaC).
 Shared HTTP helpers for both Lambda handlers live in [`utils/http_lambda.py`](utils/http_lambda.py).
 
 The control-plane Lambda entry point is
-`platform.deployment_fargate.api_control_plane.api.bootstrap.lambda_handler`.
+`platform.deployment_fargate.api_control_plane.runtime.lambda_handler`.
 
 ## Fargate fleet (CDK)
 

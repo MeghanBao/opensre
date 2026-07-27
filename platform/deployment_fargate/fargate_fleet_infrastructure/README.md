@@ -3,7 +3,7 @@
 This CDK app owns the **stable shared foundation** for the multi-tenant Gateway
 control plane. Per-organization ECS services, task definitions, IAM task roles,
 Secrets Manager records, and S3 Files access points remain in the Python
-reconciler under [`../api_control_plane/`](../api_control_plane/).
+tenant lifecycle under [`../api_control_plane/`](../api_control_plane/).
 
 ## What this stack creates
 
@@ -29,7 +29,7 @@ These resources are **not** created by this stack — pass explicit identifiers 
 | `ResourcePrefix` | `OPENSRE_FARGATE_RESOURCE_PREFIX` (optional, default `opensre`) |
 
 Stack outputs echo the values needed by
-[`TenantFleetConfig`](../api_control_plane/reconciler/config.py).
+[`TenantFleetConfig`](../api_control_plane/utils/get_fleet_config.py).
 
 ## Prerequisites
 

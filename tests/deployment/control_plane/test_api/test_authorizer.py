@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from platform.deployment_fargate.api_control_plane.api.iam_auth import iam_principal_is_allowed
-from platform.deployment_fargate.api_control_plane.contracts.contracts import TenantApiCredential
+from platform.deployment_fargate.api_control_plane.auth.iam_auth import iam_principal_is_allowed
+from platform.deployment_fargate.api_control_plane.utils.models import TenantApiCredential
 from platform.deployment_fargate.api_public_forwarder.authorizer import BearerAuthorizer
 
 
@@ -15,7 +15,7 @@ class _Credentials:
         self.credential = credential
         self.lookups: list[str] = []
 
-    def get_api_credential(self, key_id: str) -> TenantApiCredential | None:
+    def fetch_tenant_api_credential_by_key_id(self, key_id: str) -> TenantApiCredential | None:
         self.lookups.append(key_id)
         return self.credential
 

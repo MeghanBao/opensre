@@ -6,11 +6,11 @@ import logging
 import re
 from typing import Any
 
-from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
-    AgentRunRepository,
     AgentRunSource,
 )
+from platform.deployment_fargate.api_control_plane.utils.ports import AgentRunRepository
 from platform.deployment_fargate.api_public_forwarder.authorizer import AuthorizedTenant
 from platform.deployment_fargate.utils.http_lambda import (
     ClientRequestError,
@@ -65,7 +65,7 @@ class PublicApiHandler:
                 return response(405, {"error": "method_not_allowed"})
             payload = json_body(event)
             prompt, source_event_id = _parse_run_payload(payload)
-            run = self._runs.enqueue_run(
+            run = self._runs.enqueue_agent_run(
                 organization_id=tenant.organization_id,
                 source=AgentRunSource.API,
                 prompt=prompt,
@@ -81,7 +81,7 @@ class PublicApiHandler:
         run_id = run_match.group("run_id")
         if _RUN_ID_PATTERN.fullmatch(run_id) is None:
             return response(404, {"error": "not_found"})
-        found_run = self._runs.get_run(run_id)
+        found_run = self._runs.fetch_agent_run_by_id(run_id)
         if found_run is None or found_run.organization_id != tenant.organization_id:
             return response(404, {"error": "not_found"})
         return response(200, {"run": _public_run(found_run)})

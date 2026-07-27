@@ -16,7 +16,7 @@ class FargateFleetStack(Stack):
     """Provision stable shared resources consumed by ``TenantFleetConfig``.
 
     Per-organization task roles, secrets, task definitions, and ECS services
-    remain owned by the Python control-plane reconciler.
+    remain owned by the Python control-plane lifecycle.
     """
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs: Any) -> None:

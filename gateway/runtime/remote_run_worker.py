@@ -15,11 +15,11 @@ from gateway.storage import (
     SessionResolver,
     connect_gateway_db,
 )
-from platform.deployment_fargate.api_control_plane.contracts import (
+from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
-    AgentRunRepository,
     AgentRunStatus,
 )
+from platform.deployment_fargate.api_control_plane.utils.ports import AgentRunRepository
 
 _GENERIC_FAILURE = "The remote agent run failed."
 
@@ -77,7 +77,7 @@ class DatabaseGatewaySink:
 
     def persist_success(self, *, session_id: str) -> bool:
         """Persist a safe successful result while this worker owns the lease."""
-        return self._repository.finish_run(
+        return self._repository.finalize_owned_agent_run(
             run_id=self._run_id,
             worker_id=self._worker_id,
             status=AgentRunStatus.SUCCEEDED,
@@ -89,7 +89,7 @@ class DatabaseGatewaySink:
 
     def persist_failure(self, *, error_code: str) -> bool:
         """Persist only a stable exception class, never exception detail."""
-        return self._repository.finish_run(
+        return self._repository.finalize_owned_agent_run(
             run_id=self._run_id,
             worker_id=self._worker_id,
             status=AgentRunStatus.FAILED,
@@ -133,7 +133,7 @@ class _LeaseRenewer:
         interval = max(0.05, self._lease_duration.total_seconds() / 3)
         while not self._stop.wait(interval):
             try:
-                renewed = self._repository.renew_run_lease(
+                renewed = self._repository.extend_owned_agent_run_lease(
                     run_id=self._run_id,
                     worker_id=self._worker_id,
                     lease_duration=self._lease_duration,
@@ -205,7 +205,7 @@ class RemoteRunWorker:
                 self._stop.wait(self._poll_interval_seconds)
                 continue
             try:
-                run = self._repository.claim_next_run(
+                run = self._repository.claim_oldest_available_agent_run(
                     organization_id=self._organization_id,
                     worker_id=self._worker_id,
                     lease_duration=self._lease_duration,
@@ -281,11 +281,11 @@ def build_remote_run_worker(
     logger: logging.Logger,
 ) -> RemoteRunWorker:
     """Compose the production Neon repository and API session resolver."""
-    from platform.deployment_fargate.api_control_plane.store.postgres_store import (
-        PostgresControlPlaneStore,
+    from platform.deployment_fargate.api_control_plane.db.db_client import (
+        ControlPlaneDbClient,
     )
 
-    repository = PostgresControlPlaneStore(database_url, initialize_schema=False)
+    repository = ControlPlaneDbClient(database_url, initialize_schema=False)
     resolver = SessionResolver(
         SessionBindingStore(connect_gateway_db()),
         platform="api",

@@ -630,7 +630,10 @@ class TenantGatewayReconciler:
 def create_reconciler_from_environment() -> TenantGatewayReconciler:
     """Compose the production reconciler using boto3's standard credential chain."""
     config = TenantFleetConfig.from_environment()
-    repository = PostgresControlPlaneStore(_required_database_url())
+    repository = PostgresControlPlaneStore(
+        _required_database_url(),
+        initialize_schema=False,
+    )
     return TenantGatewayReconciler(
         config=config,
         repository=repository,

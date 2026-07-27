@@ -486,10 +486,16 @@ def test_zero_argument_factory_uses_real_environment_and_standard_aws_clients(
     _factory_environment(monkeypatch)
     repository = MemoryLifecycleRepository()
     database_urls: list[str] = []
+    initialize_schema_values: list[bool] = []
     clients: list[tuple[str, str]] = []
 
-    def store(database_url: str) -> MemoryLifecycleRepository:
+    def store(
+        database_url: str,
+        *,
+        initialize_schema: bool,
+    ) -> MemoryLifecycleRepository:
         database_urls.append(database_url)
+        initialize_schema_values.append(initialize_schema)
         return repository
 
     def client(service: str, region: str) -> object:
@@ -503,6 +509,7 @@ def test_zero_argument_factory_uses_real_environment_and_standard_aws_clients(
 
     assert isinstance(lifecycle, TenantGatewayReconciler)
     assert database_urls == ["postgresql://neon.example/opensre"]
+    assert initialize_schema_values == [False]
     assert clients == [
         ("s3files", "eu-west-2"),
         ("iam", "eu-west-2"),

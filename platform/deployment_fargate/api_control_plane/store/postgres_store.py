@@ -160,12 +160,13 @@ def _lease_seconds(lease_duration: timedelta) -> float:
 class PostgresControlPlaneStore:
     """Pooled Postgres store for deployment, run, and credential metadata."""
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(self, dsn: str, *, initialize_schema: bool = True) -> None:
         self._dsn = dsn
         self._pool: Any = None
         self._pool_lock = threading.Lock()
-        with self._connection() as conn, conn.cursor() as cursor:
-            cursor.execute(SCHEMA)
+        if initialize_schema:
+            with self._connection() as conn, conn.cursor() as cursor:
+                cursor.execute(SCHEMA)
 
     def _get_pool(self) -> Any:
         with self._pool_lock:

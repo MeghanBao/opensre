@@ -341,7 +341,10 @@ def build_runtime_api(
     """Build the production application using injected values or real SDK clients."""
 
     resolved = config or RuntimeConfig.from_environment()
-    repository = store or PostgresControlPlaneStore(resolved.database_url)
+    repository = store or PostgresControlPlaneStore(
+        resolved.database_url,
+        initialize_schema=False,
+    )
     if secrets_client is None:
         import boto3
 

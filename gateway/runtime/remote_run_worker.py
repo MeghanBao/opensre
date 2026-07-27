@@ -285,7 +285,7 @@ def build_remote_run_worker(
         PostgresControlPlaneStore,
     )
 
-    repository = PostgresControlPlaneStore(database_url)
+    repository = PostgresControlPlaneStore(database_url, initialize_schema=False)
     resolver = SessionResolver(
         SessionBindingStore(connect_gateway_db()),
         platform="api",

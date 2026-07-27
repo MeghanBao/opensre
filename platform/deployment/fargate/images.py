@@ -44,10 +44,23 @@ GATEWAY_IMAGE = ImageBuildDefinition(
     build_context=Path("."),
 )
 
-LAMBDA_IMAGE = ImageBuildDefinition(
+
+@dataclass(frozen=True, slots=True)
+class LambdaZipDefinition:
+    """AWS-managed Lambda runtime contract for a ZIP deployment package."""
+
+    name: str
+    runtime: Literal["python3.12"]
+    architecture: Literal["x86_64"]
+    handler: str
+    package_type: Literal["Zip"] = "Zip"
+
+
+CONTROL_PLANE_LAMBDA = LambdaZipDefinition(
     name="control-plane-lambda",
-    dockerfile=Path("platform/deployment/fargate/Dockerfile.lambda"),
-    build_context=Path("."),
+    runtime="python3.12",
+    architecture="x86_64",
+    handler="gateway.control_plane.handler.lambda_handler",
 )
 
 

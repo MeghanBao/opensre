@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from platform.deployment.fargate.images import (
+    CONTROL_PLANE_LAMBDA,
     GATEWAY_IMAGE,
-    LAMBDA_IMAGE,
     require_immutable_ecr_image,
 )
 
@@ -31,14 +31,11 @@ def test_gateway_image_contains_required_runtime_tools_and_non_root_user() -> No
     )
 
 
-def test_lambda_image_uses_aws_python_runtime_and_future_control_plane_handler() -> None:
-    dockerfile = (REPOSITORY_ROOT / LAMBDA_IMAGE.dockerfile).read_text(encoding="utf-8")
-
-    assert "FROM public.ecr.aws/lambda/python:3.12" in dockerfile
-    assert "gateway.control_plane.handler.lambda_handler" in dockerfile
-    assert "create-repository" not in dockerfile
-    assert ".[postgresql]" in dockerfile
-    assert LAMBDA_IMAGE.repository_strategy == "existing"
+def test_lambda_uses_aws_managed_python_zip_runtime() -> None:
+    assert CONTROL_PLANE_LAMBDA.runtime == "python3.12"
+    assert CONTROL_PLANE_LAMBDA.architecture == "x86_64"
+    assert CONTROL_PLANE_LAMBDA.package_type == "Zip"
+    assert CONTROL_PLANE_LAMBDA.handler == "gateway.control_plane.handler.lambda_handler"
 
 
 def test_immutable_ecr_image_requires_digest() -> None:

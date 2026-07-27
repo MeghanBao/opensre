@@ -102,10 +102,11 @@ class TenantEcsAdapter:
             "OPENSRE_WORKSPACE": "/workspace/files",
             "ORGANIZATION_ID": spec.organization_id,
             "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": spec.bootstrap_secret_arn,
-            "OPENSRE_CREDENTIALS_API_URL": spec.credentials_api_url,
             "OPENSRE_SIZE_PROFILE": spec.size_profile,
         }
-        if set(environment) != _ALLOWED_ENVIRONMENT:
+        if spec.credentials_api_url:
+            environment["OPENSRE_CREDENTIALS_API_URL"] = spec.credentials_api_url
+        if not set(environment).issubset(_ALLOWED_ENVIRONMENT):
             raise AssertionError("Task environment contains an unsupported variable")
 
         response = self._ecs.register_task_definition(

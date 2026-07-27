@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from integrations.credentials_api import CredentialsApiClient, hydrate_integration_store
@@ -25,8 +25,9 @@ class SecretsManagerClient(Protocol):
 class GatewayBootstrap:
     """Decrypted bootstrap values held in memory for this process only."""
 
-    credentials_api_token: str
+    credentials_api_token: str | None = None
     database_url: str | None = None
+    integrations_hydrated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,28 +35,28 @@ class CredentialHydrationConfig:
     """Non-secret references required to hydrate one tenant."""
 
     organization_id: str
-    credentials_api_url: str
     bootstrap_secret_arn: str
+    credentials_api_url: str | None = None
 
     @classmethod
     def from_environment(cls) -> CredentialHydrationConfig | None:
         """Return ``None`` when disabled, and reject partial configuration."""
-        values = {
+        required_values = {
             _ORGANIZATION_ID: os.getenv(_ORGANIZATION_ID, "").strip(),
-            _API_URL: os.getenv(_API_URL, "").strip(),
             _SECRET_ARN: os.getenv(_SECRET_ARN, "").strip(),
         }
-        if not any(values.values()):
+        credentials_api_url = os.getenv(_API_URL, "").strip()
+        if not any(required_values.values()) and not credentials_api_url:
             return None
-        missing = [name for name, value in values.items() if not value]
+        missing = [name for name, value in required_values.items() if not value]
         if missing:
             raise ValueError("Credential hydration configuration is incomplete")
-        if not values[_API_URL].lower().startswith("https://"):
+        if credentials_api_url and not credentials_api_url.lower().startswith("https://"):
             raise ValueError("Credentials API URL must use HTTPS")
         return cls(
-            organization_id=values[_ORGANIZATION_ID],
-            credentials_api_url=values[_API_URL],
-            bootstrap_secret_arn=values[_SECRET_ARN],
+            organization_id=required_values[_ORGANIZATION_ID],
+            credentials_api_url=credentials_api_url or None,
+            bootstrap_secret_arn=required_values[_SECRET_ARN],
         )
 
 
@@ -71,9 +72,11 @@ def _parse_bootstrap_secret(secret_string: str) -> GatewayBootstrap:
         raise ValueError("Bootstrap secret has an invalid shape")
     token = value.get("credentials_api_token")
     database_url = value.get("database_url")
-    if not isinstance(token, str) or not token:
+    if token is not None and (not isinstance(token, str) or not token):
         raise ValueError("Bootstrap secret has an invalid shape")
     if database_url is not None and (not isinstance(database_url, str) or not database_url):
+        raise ValueError("Bootstrap secret has an invalid shape")
+    if token is None and database_url is None:
         raise ValueError("Bootstrap secret has an invalid shape")
     return GatewayBootstrap(credentials_api_token=token, database_url=database_url)
 
@@ -107,6 +110,10 @@ class GatewayCredentialHydrator:
         if not isinstance(secret_string, str):
             raise ValueError("Bootstrap secret has no string value")
         bootstrap = _parse_bootstrap_secret(secret_string)
+        if self._config.credentials_api_url is None:
+            return bootstrap
+        if bootstrap.credentials_api_token is None:
+            raise ValueError("Bootstrap secret has no credentials API token")
         with CredentialsApiClient(
             base_url=self._config.credentials_api_url,
             bootstrap_credential=bootstrap.credentials_api_token,
@@ -115,7 +122,7 @@ class GatewayCredentialHydrator:
                 client=client,
                 organization_id=self._config.organization_id,
             )
-        return bootstrap
+        return replace(bootstrap, integrations_hydrated=True)
 
 
 __all__ = [

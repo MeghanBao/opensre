@@ -39,7 +39,7 @@ class FargateLifecycleConfig:
             file_system_arn=_required_environment("OPENSRE_S3_FILESYSTEM_ARN"),
             gateway_image=_required_environment("OPENSRE_GATEWAY_IMAGE"),
             execution_role_arn=_required_environment("OPENSRE_ECS_EXECUTION_ROLE_ARN"),
-            credentials_api_url=_required_environment("OPENSRE_CREDENTIALS_API_URL"),
+            credentials_api_url=os.getenv("OPENSRE_CREDENTIALS_API_URL", "").strip(),
             log_group=_required_environment("OPENSRE_GATEWAY_LOG_GROUP"),
             aws_region=region,
             subnet_ids=_required_csv_environment("OPENSRE_FARGATE_SUBNET_IDS"),

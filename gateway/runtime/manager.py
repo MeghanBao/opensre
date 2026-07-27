@@ -175,7 +175,9 @@ class GatewayManager:
             logger.error("gateway credential hydration failed (%s)", type(exc).__name__)
             self.components["credentials"] = "failed"
             raise GatewayConfigurationError("Gateway credential hydration failed") from None
-        self.components["credentials"] = "hydrated"
+        self.components["credentials"] = (
+            "hydrated" if bootstrap.integrations_hydrated else "preseeded"
+        )
         return bootstrap
 
     def wait(self, *, timeout: float | None = None) -> bool:

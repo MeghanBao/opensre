@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from platform.deployment_fargate.control_plane.api.bootstrap import LambdaApp
-from platform.deployment_fargate.control_plane.api.handler import ControlPlaneApi
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.api.bootstrap import LambdaApp
+from platform.deployment_fargate.api_control_plane.api.handler import ControlPlaneApi
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,
@@ -19,8 +19,8 @@ from platform.deployment_fargate.control_plane.contracts.contracts import (
     TenantApiCredential,
     TenantDeployment,
 )
-from platform.deployment_fargate.public_api.authorizer import BearerAuthorizer
-from platform.deployment_fargate.public_api.handler import PublicApiHandler
+from platform.deployment_fargate.api_public_forwarder.authorizer import BearerAuthorizer
+from platform.deployment_fargate.api_public_forwarder.handler import PublicApiHandler
 
 _ALLOWED_ROLE = "arn:aws:iam::123456789012:role/saas-control-plane"
 _TOKEN = f"osre_key_12345678.{'x' * 32}"

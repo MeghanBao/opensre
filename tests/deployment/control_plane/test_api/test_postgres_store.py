@@ -9,13 +9,16 @@ from typing import Any
 
 import pytest
 
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRunSource,
     AgentRunStatus,
     DeploymentDesiredState,
     TenantApiCredential,
 )
-from platform.deployment_fargate.control_plane.store.postgres_store import SCHEMA, PostgresControlPlaneStore
+from platform.deployment_fargate.api_control_plane.store.postgres_store import (
+    SCHEMA,
+    PostgresControlPlaneStore,
+)
 
 
 class _FakeCursor:

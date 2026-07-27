@@ -6,11 +6,12 @@ import logging
 import re
 from typing import Any
 
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRun,
     AgentRunRepository,
     AgentRunSource,
 )
+from platform.deployment_fargate.api_public_forwarder.authorizer import AuthorizedTenant
 from platform.deployment_fargate.http_lambda import (
     ClientRequestError,
     json_body,
@@ -19,7 +20,6 @@ from platform.deployment_fargate.http_lambda import (
     response,
     run_id_pattern,
 )
-from platform.deployment_fargate.public_api.authorizer import AuthorizedTenant
 
 logger = logging.getLogger(__name__)
 

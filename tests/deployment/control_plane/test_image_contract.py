@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from platform.deployment_fargate.control_plane.build.images import (
+from platform.deployment_fargate.api_control_plane.build.images import (
     CONTROL_PLANE_LAMBDA,
     GATEWAY_IMAGE,
     require_immutable_ecr_image,
@@ -35,7 +35,10 @@ def test_lambda_uses_aws_managed_python_zip_runtime() -> None:
     assert CONTROL_PLANE_LAMBDA.runtime == "python3.12"
     assert CONTROL_PLANE_LAMBDA.architecture == "x86_64"
     assert CONTROL_PLANE_LAMBDA.package_type == "Zip"
-    assert CONTROL_PLANE_LAMBDA.handler == "platform.deployment_fargate.control_plane.api.bootstrap.lambda_handler"
+    assert (
+        CONTROL_PLANE_LAMBDA.handler
+        == "platform.deployment_fargate.api_control_plane.api.bootstrap.lambda_handler"
+    )
 
 
 def test_immutable_ecr_image_requires_digest() -> None:

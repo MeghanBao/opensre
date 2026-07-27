@@ -7,7 +7,9 @@ import os
 
 import aws_cdk as cdk
 
-from platform.deployment_fargate.fargate_fleet_infrastructure.fargate_fleet_stack import FargateFleetStack
+from platform.deployment_fargate.fargate_fleet_infrastructure.fargate_fleet_stack import (
+    FargateFleetStack,
+)
 
 app = cdk.App()
 FargateFleetStack(

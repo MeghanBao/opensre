@@ -28,10 +28,6 @@ from platform.deployment_ec2.ec2 import (
     wait_for_running,
 )
 from platform.deployment_ec2.ssm import wait_for_ssm_registration
-from platform.deployment_fargate.utils.prep_ec2_deployment import (
-    run_lifecycle_main,
-    validate_deploy_env,
-)
 from platform.deployment_fargate.gateway.bake import bake_ami
 from platform.deployment_fargate.gateway.direct_deploy import deploy_direct, destroy_direct
 from platform.deployment_fargate.gateway.provision import (
@@ -46,6 +42,10 @@ from platform.deployment_fargate.gateway.stack import (
     load_outputs,
     outputs_exists,
     save_outputs,
+)
+from platform.deployment_fargate.utils.prep_ec2_deployment import (
+    run_lifecycle_main,
+    validate_deploy_env,
 )
 
 REGION = DEFAULT_REGION

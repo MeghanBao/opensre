@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from platform.deployment_fargate.control_plane.verification.live_harness import (
+from platform.deployment_fargate.api_control_plane.verification.live_harness import (
     LiveHarnessConfig,
     S3FilesLiveHarness,
     boto3_harness,

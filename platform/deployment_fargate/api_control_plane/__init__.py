@@ -6,7 +6,10 @@ from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
     GatewayTaskDefinitionSpec,
     TenantEcsAdapter,
 )
-from platform.deployment_fargate.api_control_plane.aws_adapters.iam import TenantIamAdapter, TenantMountBinding
+from platform.deployment_fargate.api_control_plane.aws_adapters.iam import (
+    TenantIamAdapter,
+    TenantMountBinding,
+)
 from platform.deployment_fargate.api_control_plane.aws_adapters.s3_files import S3FilesAdapter
 from platform.deployment_fargate.api_control_plane.aws_adapters.secrets import TenantSecretsAdapter
 from platform.deployment_fargate.api_control_plane.reconciler.config import TenantFleetConfig

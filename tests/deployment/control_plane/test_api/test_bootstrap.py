@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from platform.deployment_fargate.control_plane.api.bootstrap import (
+from platform.deployment_fargate.api_control_plane.api.bootstrap import (
     ControlPlaneHttpApiBootstrap,
     HttpApiBootstrapConfig,
     RuntimeConfig,

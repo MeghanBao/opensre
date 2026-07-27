@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from platform.deployment_fargate.control_plane.api.iam_auth import iam_principal_is_allowed
-from platform.deployment_fargate.control_plane.contracts.contracts import TenantApiCredential
-from platform.deployment_fargate.public_api.authorizer import BearerAuthorizer
+from platform.deployment_fargate.api_control_plane.api.iam_auth import iam_principal_is_allowed
+from platform.deployment_fargate.api_control_plane.contracts.contracts import TenantApiCredential
+from platform.deployment_fargate.api_public_forwarder.authorizer import BearerAuthorizer
 
 
 class _Credentials:

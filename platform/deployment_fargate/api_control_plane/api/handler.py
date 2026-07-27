@@ -7,8 +7,13 @@ import re
 from typing import Any
 
 from platform.deployment_fargate.api_control_plane.api.iam_auth import iam_principal_is_allowed
-from platform.deployment_fargate.api_control_plane.contracts.contracts import SizeProfile, TenantDeployment
-from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import LifecycleService
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+    SizeProfile,
+    TenantDeployment,
+)
+from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import (
+    LifecycleService,
+)
 from platform.deployment_fargate.api_control_plane.reconciler.results import (
     ProvisionGatewayResult,
     RotatedApiCredential,

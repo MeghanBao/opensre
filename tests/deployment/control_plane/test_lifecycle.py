@@ -9,33 +9,35 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from platform.deployment_fargate.control_plane.aws_adapters.ecs import (
+from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
     FargateServiceState,
     TenantEcsAdapter,
 )
-from platform.deployment_fargate.control_plane.aws_adapters.iam import TenantIamAdapter
-from platform.deployment_fargate.control_plane.aws_adapters.s3_files import (
+from platform.deployment_fargate.api_control_plane.aws_adapters.iam import TenantIamAdapter
+from platform.deployment_fargate.api_control_plane.aws_adapters.s3_files import (
     S3FilesAccessPoint,
     S3FilesAdapter,
 )
-from platform.deployment_fargate.control_plane.aws_adapters.secrets import (
+from platform.deployment_fargate.api_control_plane.aws_adapters.secrets import (
     TenantPublicApiCredential,
     TenantSecretsAdapter,
 )
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     DeploymentActualState,
     DeploymentDesiredState,
     SizeProfile,
     TenantApiCredential,
     TenantDeployment,
 )
-from platform.deployment_fargate.control_plane.reconciler.config import TenantFleetConfig
-from platform.deployment_fargate.control_plane.reconciler.errors import (
+from platform.deployment_fargate.api_control_plane.reconciler.config import TenantFleetConfig
+from platform.deployment_fargate.api_control_plane.reconciler.errors import (
     LifecycleCapacityError,
     LifecycleOperationError,
     LifecycleValidationError,
 )
-from platform.deployment_fargate.control_plane.reconciler.reconcile import TenantGatewayReconciler
+from platform.deployment_fargate.api_control_plane.reconciler.reconcile import (
+    TenantGatewayReconciler,
+)
 
 NOW = datetime(2026, 7, 24, 12, tzinfo=UTC)
 FILE_SYSTEM_ARN = "arn:aws:s3files:eu-west-2:123456789012:file-system/fs-123"
@@ -479,7 +481,7 @@ def test_rejects_organization_ids_that_could_escape_resource_names() -> None:
 def test_zero_argument_factory_uses_real_environment_and_standard_aws_clients(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import platform.deployment_fargate.control_plane.reconciler.reconcile as lifecycle_module
+    import platform.deployment_fargate.api_control_plane.reconciler.reconcile as lifecycle_module
 
     _factory_environment(monkeypatch)
     repository = MemoryLifecycleRepository()

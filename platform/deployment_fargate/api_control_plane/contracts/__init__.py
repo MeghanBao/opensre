@@ -13,7 +13,9 @@ from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     TenantApiCredentialRepository,
     TenantDeployment,
 )
-from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import LifecycleService
+from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import (
+    LifecycleService,
+)
 
 __all__ = [
     "AgentRun",

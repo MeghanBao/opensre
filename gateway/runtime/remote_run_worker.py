@@ -15,7 +15,7 @@ from gateway.storage import (
     SessionResolver,
     connect_gateway_db,
 )
-from platform.deployment_fargate.control_plane.contracts import (
+from platform.deployment_fargate.api_control_plane.contracts import (
     AgentRun,
     AgentRunRepository,
     AgentRunStatus,
@@ -281,7 +281,9 @@ def build_remote_run_worker(
     logger: logging.Logger,
 ) -> RemoteRunWorker:
     """Compose the production Neon repository and API session resolver."""
-    from platform.deployment_fargate.control_plane.store.postgres_store import PostgresControlPlaneStore
+    from platform.deployment_fargate.api_control_plane.store.postgres_store import (
+        PostgresControlPlaneStore,
+    )
 
     repository = PostgresControlPlaneStore(database_url)
     resolver = SessionResolver(

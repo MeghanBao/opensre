@@ -9,7 +9,9 @@ pytest.importorskip("aws_cdk")
 from aws_cdk import App
 from aws_cdk.assertions import Match, Template
 
-from platform.deployment_fargate.fargate_fleet_infrastructure.fargate_fleet_stack import FargateFleetStack
+from platform.deployment_fargate.fargate_fleet_infrastructure.fargate_fleet_stack import (
+    FargateFleetStack,
+)
 
 _TENANT_FLEET_ENV_OUTPUTS = (
     "OpensreFargateClusterArn",
@@ -105,7 +107,9 @@ def test_execution_role_uses_ecs_task_execution_managed_policy(
     execution_roles = [
         props
         for props in roles.values()
-        if props.get("Properties", {}).get("Description", "").startswith(
+        if props.get("Properties", {})
+        .get("Description", "")
+        .startswith(
             "ECS execution role for tenant Gateway tasks",
         )
     ]
@@ -138,7 +142,7 @@ def test_output_exports_use_opensre_fleet_prefix(fleet_template: Template) -> No
 
 def test_stack_synths_without_aws_credentials() -> None:
     app = App()
-    stack = FargateFleetStack(app, "CiFleet")
+    FargateFleetStack(app, "CiFleet")
     assembly = app.synth()
     assert assembly.stacks
-    assert any(stack.stack_name == "CiFleet" for stack in assembly.stacks)
+    assert any(item.stack_name == "CiFleet" for item in assembly.stacks)

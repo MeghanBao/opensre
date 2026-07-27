@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from platform.deployment_fargate.api_control_plane.contracts.contracts import SizeProfile, TenantDeployment
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
+    SizeProfile,
+    TenantDeployment,
+)
 from platform.deployment_fargate.api_control_plane.reconciler.results import (
     ProvisionGatewayResult,
     RotatedApiCredential,

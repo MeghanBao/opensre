@@ -125,9 +125,7 @@ class CredentialsApiClient:
         base_url: str,
         bootstrap_credential: str,
         timeout_seconds: float = 10.0,
-        endpoint_template: str = (
-            "/api/agent/integrations?organizationId={organization_id}"
-        ),
+        endpoint_template: str = ("/api/agent/integrations?organizationId={organization_id}"),
         http_client: httpx.Client | None = None,
     ) -> None:
         if not base_url.lower().startswith("https://"):

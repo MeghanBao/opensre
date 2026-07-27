@@ -7,12 +7,12 @@ import threading
 
 import pytest
 
-from platform.deployment_fargate.control_plane.contracts.contracts import SizeProfile
 from gateway.runtime.concurrency import (
     ConcurrencyLimitedTurnHandler,
     TurnConcurrencyGate,
 )
 from gateway.runtime.scheduler_concurrency import gate_registered_scheduler_runners
+from platform.deployment_fargate.api_control_plane.contracts.contracts import SizeProfile
 from platform.scheduler.agent_runner import (
     invoke_agent_runner,
     register_agent_runner,

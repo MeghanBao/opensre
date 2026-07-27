@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 
 from integrations.credentials_api import CredentialsApiError
-from platform.deployment_fargate.control_plane.build.s3files_definition import (
+from platform.deployment_fargate.api_control_plane.build.s3files_definition import (
     validate_task_definition,
     validate_tenant_mount_policy,
 )
-from platform.deployment_fargate.control_plane.verification.setup_task import (
+from platform.deployment_fargate.api_control_plane.verification.setup_task import (
     FILE_MODE,
     SANDBOX_SERVICE,
     generate_sandbox_store,
@@ -182,7 +182,8 @@ def test_setup_task_output_never_contains_generated_credentials(
 ) -> None:
     generated_secret = "sandbox-value-that-must-not-be-logged"
     monkeypatch.setattr(
-        "platform.deployment_fargate.control_plane.verification.setup_task.secrets.token_urlsafe", lambda _: generated_secret
+        "platform.deployment_fargate.api_control_plane.verification.setup_task.secrets.token_urlsafe",
+        lambda _: generated_secret,
     )
 
     assert (

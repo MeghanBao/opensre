@@ -18,15 +18,20 @@ from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRunRepository,
     TenantApiCredentialRepository,
 )
-from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import LifecycleService
-from platform.deployment_fargate.api_control_plane.store.postgres_store import PostgresControlPlaneStore
-from platform.deployment_fargate.http_lambda import header, is_authorizer_event, response
-from platform.deployment_fargate.public_api.authorizer import AwsSecretsManagerReader, BearerAuthorizer
-from platform.deployment_fargate.public_api.handler import PublicApiHandler
-
-_DEFAULT_LIFECYCLE_FACTORY = (
-    "platform.deployment_fargate.api_control_plane.reconciler.reconcile:create_reconciler_from_environment"
+from platform.deployment_fargate.api_control_plane.contracts.lifecycle_service import (
+    LifecycleService,
 )
+from platform.deployment_fargate.api_control_plane.store.postgres_store import (
+    PostgresControlPlaneStore,
+)
+from platform.deployment_fargate.api_public_forwarder.authorizer import (
+    AwsSecretsManagerReader,
+    BearerAuthorizer,
+)
+from platform.deployment_fargate.api_public_forwarder.handler import PublicApiHandler
+from platform.deployment_fargate.http_lambda import header, is_authorizer_event, response
+
+_DEFAULT_LIFECYCLE_FACTORY = "platform.deployment_fargate.api_control_plane.reconciler.reconcile:create_reconciler_from_environment"
 _LIFECYCLE_ROUTES = (
     ("PUT", "/v1/organizations/{organization_id}/gateway"),
     ("GET", "/v1/organizations/{organization_id}/gateway"),

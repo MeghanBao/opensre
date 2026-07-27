@@ -8,13 +8,13 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from gateway.runtime.concurrency import TurnConcurrencyGate
+from gateway.runtime.remote_run_worker import RemoteRunWorker
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,
 )
-from gateway.runtime.concurrency import TurnConcurrencyGate
-from gateway.runtime.remote_run_worker import RemoteRunWorker
 
 
 def _run() -> AgentRun:

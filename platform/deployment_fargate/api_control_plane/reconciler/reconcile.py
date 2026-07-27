@@ -10,14 +10,14 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
-from platform.deployment_fargate.api_control_plane.aws_adapters.get_boto3_client import (
-    get_boto3_client,
-)
 from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
     FargateServiceSpec,
     FargateServiceState,
     GatewayTaskDefinitionSpec,
     TenantEcsAdapter,
+)
+from platform.deployment_fargate.api_control_plane.aws_adapters.get_boto3_client import (
+    get_boto3_client,
 )
 from platform.deployment_fargate.api_control_plane.aws_adapters.iam import TenantIamAdapter
 from platform.deployment_fargate.api_control_plane.aws_adapters.s3_files import S3FilesAdapter
@@ -52,7 +52,9 @@ from platform.deployment_fargate.api_control_plane.reconciler.results import (
     ProvisionGatewayResult,
     RotatedApiCredential,
 )
-from platform.deployment_fargate.api_control_plane.store.postgres_store import PostgresControlPlaneStore
+from platform.deployment_fargate.api_control_plane.store.postgres_store import (
+    PostgresControlPlaneStore,
+)
 
 _ORGANIZATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
 

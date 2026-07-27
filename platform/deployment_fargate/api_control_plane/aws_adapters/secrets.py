@@ -10,7 +10,10 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from platform.deployment_fargate.api_control_plane.aws_adapters.types import SecretsManagerClient, aws_iam_tags
+from platform.deployment_fargate.api_control_plane.aws_adapters.types import (
+    SecretsManagerClient,
+    aws_iam_tags,
+)
 
 _DISABLED_POLICY_SID = "OpenSreTenantCredentialDisabled"
 

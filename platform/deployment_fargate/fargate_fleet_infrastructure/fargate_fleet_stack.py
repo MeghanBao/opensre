@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from aws_cdk import CfnOutput, CfnParameter, Fn, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
@@ -17,7 +19,7 @@ class FargateFleetStack(Stack):
     remain owned by the Python control-plane reconciler.
     """
 
-    def __init__(self, scope: Construct, construct_id: str, **kwargs: object) -> None:
+    def __init__(self, scope: Construct, construct_id: str, **kwargs: Any) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         vpc_id = CfnParameter(
@@ -143,7 +145,7 @@ class FargateFleetStack(Stack):
         credentials_api_url: CfnParameter,
     ) -> None:
         """Emit outputs aligned with ``TenantFleetConfig`` environment variables."""
-        outputs: tuple[tuple[str, object, str], ...] = (
+        outputs: tuple[tuple[str, Any, str], ...] = (
             ("OpensreFargateClusterArn", cluster_arn, "OPENSRE_FARGATE_CLUSTER_ARN"),
             (
                 "OpensreEcsExecutionRoleArn",

@@ -9,25 +9,25 @@ import boto3
 import pytest
 from botocore.validate import validate_parameters
 
-from platform.deployment_fargate.utils.validate_existing_infrastructure import (
-    AwsResourceConfigurationError,
-    ExistingInfrastructureValidator,
-)
-from platform.deployment_fargate.control_plane.aws_adapters.ecs import (
+from platform.deployment_fargate.api_control_plane.aws_adapters.ecs import (
     FargateServiceSpec,
     GatewayTaskDefinitionSpec,
     TenantEcsAdapter,
     validate_immutable_image,
 )
-from platform.deployment_fargate.control_plane.aws_adapters.iam import (
+from platform.deployment_fargate.api_control_plane.aws_adapters.iam import (
     S3_FILES_CLIENT_ACTIONS,
     TenantIamAdapter,
     TenantMountBinding,
     build_file_system_isolation_policy,
     build_tenant_task_policy,
 )
-from platform.deployment_fargate.control_plane.aws_adapters.s3_files import S3FilesAdapter
-from platform.deployment_fargate.control_plane.aws_adapters.secrets import TenantSecretsAdapter
+from platform.deployment_fargate.api_control_plane.aws_adapters.s3_files import S3FilesAdapter
+from platform.deployment_fargate.api_control_plane.aws_adapters.secrets import TenantSecretsAdapter
+from platform.deployment_fargate.utils.validate_existing_infrastructure import (
+    AwsResourceConfigurationError,
+    ExistingInfrastructureValidator,
+)
 
 FILE_SYSTEM_ARN = "arn:aws:s3files:eu-west-2:123456789012:file-system/fs-123"
 ACCESS_POINT_A_ARN = f"{FILE_SYSTEM_ARN}/access-point/ap-a"

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from platform.deployment_fargate.control_plane.contracts.contracts import (
+from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     TenantApiCredential,
     TenantApiCredentialRepository,
 )

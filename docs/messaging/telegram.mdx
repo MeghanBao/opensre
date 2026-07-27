@@ -57,7 +57,14 @@ The bot can deliver to three kinds of destinations. Pick the one that fits your 
 
 ## Step 3: Find your `chat_id`
 
-The **chat ID** identifies where the bot should post.
+The **chat ID** identifies where the bot should post. It is required — without it
+the bot has nowhere to send anything.
+
+<Tip>
+**Posting to a public channel?** Skip this step — setup accepts the channel's
+`@name` (for example `@acme_alerts`) directly. Private groups and DMs have no
+`@name`, so they need the steps below.
+</Tip>
 
 1. Send any message in the destination chat — for a channel, post anything; for a DM, send `/start` to your bot.
 2. In a browser, open:
@@ -102,10 +109,19 @@ opensre onboard
 
 Choose **Telegram** from the integration list. The wizard prompts for:
 
-- **Bot token** — stored in the system keyring (not plain `.env`)
-- **Default chat ID** — written to `.env` as `TELEGRAM_DEFAULT_CHAT_ID`
+- **Bot token** (required) — stored in the system keyring (not plain `.env`)
+- **Default chat ID or `@channelname`** (required) — written to `.env` as
+  `TELEGRAM_DEFAULT_CHAT_ID`
 
 Credentials are also saved to `~/.opensre/integrations.json` via `upsert_integration("telegram", ...)`.
+
+Both answers are checked before anything is saved, so a wrong token or a chat the
+bot was never added to fails here rather than silently at the first alert.
+
+<Note>
+Setup confirms the bot can *see* the chat, not that it may post there. For a
+channel the bot still needs the **Post Messages** permission from Step 2.
+</Note>
 
 Non-interactive setup:
 

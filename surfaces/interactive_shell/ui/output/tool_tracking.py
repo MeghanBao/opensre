@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, runtime_checkable
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from rich.text import Text
 
@@ -30,17 +30,6 @@ def _is_repl_display(display: object) -> TypeGuard[_ReplEventLogDisplay]:
     from surfaces.interactive_shell.ui.output.repl_display import _ReplEventLogDisplay
 
     return isinstance(display, _ReplEventLogDisplay)
-
-
-@runtime_checkable
-class ToolTrackingSupport(Protocol):
-    """Interface that concrete classes must satisfy to use :class:`ToolTrackingMixin`."""
-
-    def update_subtext(self, node_name: str, text: str, duration: float = 4.0) -> None:
-        raise NotImplementedError
-
-    def print_above_renderable(self, renderable: Any) -> None:
-        raise NotImplementedError
 
 
 class ToolTrackingMixin:

@@ -9,7 +9,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+from config.principal import StorageScope
+from config.scope_context import bound_storage_scope
 from core.agent_harness.session import SessionCore
+from gateway.billing.credits_client import CreditsOutcome, consume_credits
 from gateway.runtime.sink_protocol import GatewayAgentCallback
 from gateway.slack.approvals import (
     ApprovalBroker,
@@ -23,8 +26,9 @@ from gateway.slack.client import (
     mark_turn_failed,
     mark_turn_working,
 )
-from gateway.slack.events import SlackInboundMessage
+from gateway.slack.events import SlackInboundFile, SlackInboundMessage
 from gateway.slack.output_sink import SlackOutputSink
+from gateway.slack.principal import PrincipalResolutionError, resolve_slack_scope
 from gateway.slack.security import (
     SlackInboundDecision,
     enforce_inbound_slack_message_security,
@@ -36,6 +40,7 @@ from gateway.slack.thread_history import (
     session_needs_thread_seed,
 )
 from gateway.storage import SessionResolver
+from platform.analytics.usage_context import SURFACE_SLACK, bound_usage_context
 
 _ROTATE_SESSION = "__ROTATE_SESSION__"
 
@@ -46,6 +51,10 @@ _MAX_CONVERSATION_LOCKS = 1024
 _DENIAL_REPLY = "You're not authorized to use this bot. Ask an admin to add you."
 _NEW_SESSION_REPLY = "Started a new session."
 _TURN_TIMEOUT_MESSAGE = "This is taking longer than expected. Please try again."
+# Only an explicit 402 from the credit ledger posts this; UNCONFIGURED /
+# UNAVAILABLE outcomes run the turn instead, so a misconfiguration or webapp
+# outage never masquerades to users as "out of credits".
+_CREDITS_DENIED_MESSAGE = "Out of credits — top up in the OpenSRE console."
 
 
 @dataclass
@@ -84,13 +93,25 @@ class _SlackTurnDispatcher:
 
     def dispatch(self, inbound: SlackInboundMessage) -> None:
         try:
-            if not self._admit(inbound):
-                return
-            self._run_turn(inbound)
+            scope = resolve_slack_scope(team_id=inbound.team_id, user_id=inbound.user_id)
+        except PrincipalResolutionError:
+            # Without a known owner the turn would read or bill the wrong
+            # principal's data, so it does not run.
+            self._logger.error(
+                "[slack-gateway] turn refused: unresolved principal channel=%s",
+                inbound.channel_id,
+                exc_info=True,
+            )
+            return
+        try:
+            with bound_storage_scope(scope):
+                if not self._admit(inbound, scope):
+                    return
+                self._run_turn(inbound, scope)
         except Exception:
             self._logger.error("[slack-gateway] turn failed", exc_info=True)
 
-    def _admit(self, inbound: SlackInboundMessage) -> bool:
+    def _admit(self, inbound: SlackInboundMessage, scope: StorageScope) -> bool:
         """Layered gate: decide whether this inbound message runs a turn at all.
 
         Mentions and DMs always run (and open/refresh the thread's attention
@@ -106,7 +127,10 @@ class _SlackTurnDispatcher:
             self._attention.note_addressed_turn(inbound.conversation_key, user_id=inbound.user_id)
             return True
         # Layer 1: only threads the bot already joined; never channel chatter.
-        if not self._session_resolver.has_session(user_id=inbound.conversation_key):
+        if not self._session_resolver.has_conversation(
+            conversation_key=inbound.conversation_key,
+            principal=scope.principal,
+        ):
             return False
         if not self._bot_user_id:
             # Without our own id we can neither dedup mention copies nor run
@@ -181,6 +205,7 @@ class _SlackTurnDispatcher:
         self,
         inbound: SlackInboundMessage,
         decision: SlackInboundDecision,
+        scope: StorageScope,
     ) -> SessionCore | None:
         """Apply auth decision side effects. Return a session to run, or None to stop."""
         persist_policy_if_needed(decision)
@@ -208,6 +233,8 @@ class _SlackTurnDispatcher:
                 session = self._session_resolver.rotate(
                     user_id=inbound.conversation_key,
                     chat_id=inbound.channel_id,
+                    principal=scope.principal,
+                    actor=scope.actor,
                 )
                 self._post(inbound, _NEW_SESSION_REPLY)
                 if inbound.text.strip().lower() == "/new":
@@ -216,9 +243,11 @@ class _SlackTurnDispatcher:
             return self._session_resolver.resolve(
                 user_id=inbound.conversation_key,
                 chat_id=inbound.channel_id,
+                principal=scope.principal,
+                actor=scope.actor,
             )
 
-    def _run_turn(self, inbound: SlackInboundMessage) -> None:
+    def _run_turn(self, inbound: SlackInboundMessage, scope: StorageScope) -> None:
         with self._conversation_turn(inbound.conversation_key):
             decision = enforce_inbound_slack_message_security(
                 user_id=inbound.user_id,
@@ -227,8 +256,21 @@ class _SlackTurnDispatcher:
                 env_allowed_user_ids=self._settings.allowed_user_ids,
                 allow_open_workspace=self._settings.allow_open_workspace,
             )
-            session = self._apply_inbound_decision(inbound, decision)
+            session = self._apply_inbound_decision(inbound, decision, scope)
             if session is None:
+                return
+
+            # Metering: only an explicit webapp denial (402) blocks the turn,
+            # so a config error can never masquerade to users as "out of
+            # credits". UNCONFIGURED (dev setups without metering env) and
+            # UNAVAILABLE (webapp outage) proceed — fail-open is the intended
+            # policy so a billing outage never silences the Slack coworker.
+            if consume_credits(scope.principal.id, reason="slack_turn") is CreditsOutcome.DENIED:
+                self._logger.info(
+                    "[slack-gateway] turn denied: out of credits channel=%s",
+                    inbound.channel_id,
+                )
+                self._post(inbound, _CREDITS_DENIED_MESSAGE)
                 return
 
             # Never log message bodies — audit hashes live in messaging_security.
@@ -332,7 +374,16 @@ class _SlackTurnDispatcher:
                             seeded,
                         )
                 agent_text = _agent_text_with_slack_context(inbound)
-                self._handler(agent_text, session, sink, self._logger)
+                if inbound.files and (
+                    files_context := _slack_files_context(inbound.files, self._logger)
+                ):
+                    agent_text = f"{agent_text}\n\n{files_context}"
+                with bound_usage_context(
+                    surface=SURFACE_SLACK,
+                    session_id=session.session_id,
+                    user_id=inbound.user_id or None,
+                ):
+                    self._handler(agent_text, session, sink, self._logger)
             except Exception:
                 self._logger.exception(
                     "[slack-gateway] turn ERRORED after %.1fs channel=%s session=%s",
@@ -369,6 +420,22 @@ class _SlackTurnDispatcher:
                     channel=inbound.channel_id,
                     timestamp=inbound.ts,
                 )
+
+
+def _slack_files_context(files: tuple[SlackInboundFile, ...], logger: logging.Logger) -> str:
+    """Download shared files and render them as text for the turn prompt.
+
+    Returns an empty string when the bot token is unavailable (metering-style
+    fail-safe — a missing token drops attachments rather than failing the turn).
+    """
+    from gateway.slack.attachments import build_files_context
+    from integrations.slack.web_client import resolve_bot_token
+
+    target, detail = resolve_bot_token()
+    if target is None:
+        logger.info("[slack-gateway] skipping %d file(s): %s", len(files), detail)
+        return ""
+    return build_files_context(files, target.bot_token)
 
 
 def _agent_text_with_slack_context(inbound: SlackInboundMessage) -> str:

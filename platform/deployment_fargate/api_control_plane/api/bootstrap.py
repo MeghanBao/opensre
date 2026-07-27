@@ -29,7 +29,7 @@ from platform.deployment_fargate.api_public_forwarder.authorizer import (
     BearerAuthorizer,
 )
 from platform.deployment_fargate.api_public_forwarder.handler import PublicApiHandler
-from platform.deployment_fargate.http_lambda import header, is_authorizer_event, response
+from platform.deployment_fargate.utils.http_lambda import header, is_authorizer_event, response
 
 _DEFAULT_LIFECYCLE_FACTORY = "platform.deployment_fargate.api_control_plane.reconciler.reconcile:create_reconciler_from_environment"
 _LIFECYCLE_ROUTES = (

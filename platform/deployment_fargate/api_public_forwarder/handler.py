@@ -12,7 +12,7 @@ from platform.deployment_fargate.api_control_plane.contracts.contracts import (
     AgentRunSource,
 )
 from platform.deployment_fargate.api_public_forwarder.authorizer import AuthorizedTenant
-from platform.deployment_fargate.http_lambda import (
+from platform.deployment_fargate.utils.http_lambda import (
     ClientRequestError,
     json_body,
     method_and_path,

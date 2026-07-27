@@ -18,7 +18,7 @@ from platform.deployment_fargate.api_control_plane.reconciler.results import (
     ProvisionGatewayResult,
     RotatedApiCredential,
 )
-from platform.deployment_fargate.http_lambda import (
+from platform.deployment_fargate.utils.http_lambda import (
     ClientRequestError,
     json_body,
     jsonable,

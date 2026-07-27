@@ -20,7 +20,7 @@ folders as other entities gain IaC).
 | **Shared fleet (IaC)** | [`fargate_fleet_infrastructure/`](fargate_fleet_infrastructure/) | Python CDK stack for ECS cluster, gateway security group, log group, and execution role. |
 | **Gateway runtime** | [`../../gateway/`](../../gateway/) | Tenant Gateway process (Fargate task or legacy EC2/systemd). |
 
-Shared HTTP helpers for both Lambda handlers live in [`http_lambda.py`](http_lambda.py).
+Shared HTTP helpers for both Lambda handlers live in [`utils/http_lambda.py`](utils/http_lambda.py).
 
 The control-plane Lambda entry point is
 `platform.deployment_fargate.api_control_plane.api.bootstrap.lambda_handler`.

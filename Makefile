@@ -315,9 +315,10 @@ PUBLIC_FORWARDER_CDK = cd $(PUBLIC_FORWARDER_CDK_DIR) && uv run --extra cdk cdk
 FLEET_CDK_ARGS ?=
 CONTROL_PLANE_CDK_ARGS ?=
 PUBLIC_FORWARDER_CDK_ARGS ?=
-# Separate checkout of https://github.com/Tracer-Cloud/opensre-infra-aws
-OPENSRE_INFRA_AWS_DIR ?=
+# Defaults to the opensre-infra git submodule under platform/deployment_fargate/.
+OPENSRE_INFRA_AWS_DIR ?= platform/deployment_fargate/opensre-infra
 OPENSRE_INFRA_AWS_ENVIRONMENT ?=
+INFRA_AWS_DEPLOY_SCRIPT = platform/deployment_fargate/scripts/cdk_deploy_fleet_from_infra_aws.sh
 
 cdk-synth:
 	$(FLEET_CDK) synth
@@ -334,22 +335,17 @@ cdk-deploy: cdk-deploy-fleet cdk-deploy-control-plane cdk-deploy-public-forwarde
 cdk-deploy-fleet:
 	$(FLEET_CDK) deploy OpensreFargateFleet --require-approval never $(FLEET_CDK_ARGS)
 
-# Resolve S3 Files identifiers from opensre-infra-aws Terraform memories output,
+# Resolve S3 Files identifiers from opensre-infra Terraform memories output,
 # then deploy the fleet. Keep VpcId / PublicSubnetIds / GatewayImage in FLEET_CDK_ARGS.
 cdk-deploy-fleet-from-infra-aws:
-	@if [ -z "$(OPENSRE_INFRA_AWS_DIR)" ]; then \
-		echo "OPENSRE_INFRA_AWS_DIR is required (path to opensre-infra-aws checkout)"; \
-		exit 1; \
-	fi
 	@if [ -z "$(OPENSRE_INFRA_AWS_ENVIRONMENT)" ]; then \
 		echo "OPENSRE_INFRA_AWS_ENVIRONMENT is required (e.g. dev or prod)"; \
 		exit 1; \
 	fi
-	@INFRA_PARAMS=$$(uv run python -m platform.deployment_fargate.utils.resolve_infra_aws_memories \
-		--infra-dir "$(OPENSRE_INFRA_AWS_DIR)" \
-		--environment "$(OPENSRE_INFRA_AWS_ENVIRONMENT)" \
-		--print-cdk-args) || exit 1; \
-	$(FLEET_CDK) deploy OpensreFargateFleet --require-approval never $$INFRA_PARAMS $(FLEET_CDK_ARGS)
+	OPENSRE_INFRA_AWS_DIR="$(OPENSRE_INFRA_AWS_DIR)" \
+	OPENSRE_INFRA_AWS_ENVIRONMENT="$(OPENSRE_INFRA_AWS_ENVIRONMENT)" \
+	FLEET_CDK_ARGS="$(FLEET_CDK_ARGS)" \
+		$(INFRA_AWS_DEPLOY_SCRIPT) --environment "$(OPENSRE_INFRA_AWS_ENVIRONMENT)"
 
 cdk-deploy-control-plane:
 	$(CONTROL_PLANE_CDK) deploy OpensreControlPlaneApi --require-approval never $(CONTROL_PLANE_CDK_ARGS)

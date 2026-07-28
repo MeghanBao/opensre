@@ -46,8 +46,9 @@ in every configured public subnet using the mount-target security group.
 
 Shared memories storage (backing bucket + S3 Files filesystem) is owned by
 [opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main)
-(`stacks/shared` → `memories` output). This app repo does **not** vendor that
-code; use a separate checkout and resolve outputs at deploy time.
+(`stacks/shared` → `memories` output). This package references that repository as
+the git submodule [`../opensre-infra/`](../opensre-infra/) (also usable in Cursor
+as `@opensre-infra`).
 
 | Terraform `memories[env]` field | Fleet CDK parameter |
 | --- | --- |
@@ -69,19 +70,26 @@ SSE-KMS when you run that helper — the Terraform bridge does not claim KMS
 compliance and does not inject the raw bucket name into the fleet stack (runtime
 consumes the S3 Files filesystem, not direct S3 object APIs).
 
-Prerequisites on the infra checkout:
+Prerequisites:
 
 ```bash
-git clone git@github.com:Tracer-Cloud/opensre-infra-aws.git
-cd opensre-infra-aws/stacks/shared
+git submodule update --init platform/deployment_fargate/opensre-infra
+cd platform/deployment_fargate/opensre-infra/stacks/shared
 terraform init -input=false
 ```
 
-Then from this repo:
+Deploy via the package script (preferred) or Make:
 
 ```bash
+./platform/deployment_fargate/scripts/cdk_deploy_fleet_from_infra_aws.sh \
+  --environment dev \
+  --parameters VpcId=vpc-abc123 \
+  --parameters PublicSubnetIds=subnet-a,subnet-b \
+  --parameters GatewayImage=123456789012.dkr.ecr.us-east-1.amazonaws.com/opensre@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --parameters CredentialsApiUrl=https://credentials.example.com
+
+# equivalent Make entrypoint (defaults OPENSRE_INFRA_AWS_DIR to the submodule)
 make cdk-deploy-fleet-from-infra-aws \
-  OPENSRE_INFRA_AWS_DIR=/path/to/opensre-infra-aws \
   OPENSRE_INFRA_AWS_ENVIRONMENT=dev \
   FLEET_CDK_ARGS='--parameters VpcId=vpc-abc123 \
     --parameters PublicSubnetIds=subnet-a,subnet-b \
@@ -92,8 +100,7 @@ make cdk-deploy-fleet-from-infra-aws \
 Inspect resolved values without deploying:
 
 ```bash
-uv run python -m platform.deployment_fargate.utils.resolve_infra_aws_memories \
-  --infra-dir /path/to/opensre-infra-aws \
+./platform/deployment_fargate/scripts/cdk_deploy_fleet_from_infra_aws.sh \
   --environment dev \
   --print-json
 ```

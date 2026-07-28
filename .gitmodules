@@ -1,0 +1,3 @@
+[submodule "opensre-infra"]
+	path = platform/deployment_fargate/opensre-infra
+	url = https://github.com/Tracer-Cloud/opensre-infra-aws.git

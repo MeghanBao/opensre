@@ -19,6 +19,8 @@ shared fleet, control-plane lifecycle API, and public forwarder API.
 | **Public API** | [`api_public_forwarder/`](api_public_forwarder/) | Bearer-authorizer-backed `/v1/runs` routes and Lambda composition root. |
 | **Public API IaC** | [`api_public_forwarder_infrastructure/`](api_public_forwarder_infrastructure/) | Public-run Lambda, REQUEST authorizer, routes, logs, alarms, and resource-prefix wiring. |
 | **Shared fleet (IaC)** | [`fargate_fleet_infrastructure/`](fargate_fleet_infrastructure/) | Python CDK stack for ECS cluster, gateway security group, log group, and execution role. |
+| **opensre-infra** | [`opensre-infra/`](opensre-infra/) | Git submodule of [opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main) (shared S3 Files / memories Terraform). |
+| **Deploy scripts** | [`scripts/`](scripts/) | Fleet deploy helpers that resolve Terraform `memories` into CDK parameters. |
 | **Gateway runtime** | [`../../gateway/`](../../gateway/) | Tenant Gateway process (Fargate task or legacy EC2/systemd). |
 
 Shared HTTP helpers for both Lambda handlers live in [`utils/http_lambda.py`](utils/http_lambda.py).
@@ -42,10 +44,24 @@ Entry points:
 | `make cdk-verify` | Run synth-level CDK tests (no AWS credentials) |
 
 Shared S3 Files storage (backing bucket + filesystem) is provisioned in
-[opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main).
-Use a separate checkout and
-`make cdk-deploy-fleet-from-infra-aws` to resolve the `memories` Terraform output
-into fleet CDK parameters. Details and the field mapping live in
+[opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main),
+vendored here as the [`opensre-infra/`](opensre-infra/) git submodule. After
+`git submodule update --init platform/deployment_fargate/opensre-infra`, deploy
+with the script or Make target:
+
+```bash
+# one-time Terraform backend init in the submodule
+cd platform/deployment_fargate/opensre-infra/stacks/shared && terraform init -input=false
+
+./platform/deployment_fargate/scripts/cdk_deploy_fleet_from_infra_aws.sh \
+  --environment dev \
+  --parameters VpcId=vpc-... \
+  --parameters PublicSubnetIds=subnet-a,subnet-b \
+  --parameters GatewayImage=... \
+  --parameters CredentialsApiUrl=...
+```
+
+Field mapping and notes live in
 [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md).
 
 See [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md),

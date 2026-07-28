@@ -113,11 +113,12 @@ reconciles the filesystem-wide tenant isolation policy.
 
 ```bash
 make cdk-synth
-# Option A: resolve S3 Files params from a local opensre-infra-aws checkout
-make cdk-deploy-fleet-from-infra-aws \
-  OPENSRE_INFRA_AWS_DIR=/path/to/opensre-infra-aws \
-  OPENSRE_INFRA_AWS_ENVIRONMENT=dev \
-  FLEET_CDK_ARGS='--parameters ...'
+# Option A: resolve S3 Files params from the opensre-infra submodule
+git submodule update --init platform/deployment_fargate/opensre-infra
+cd platform/deployment_fargate/opensre-infra/stacks/shared && terraform init -input=false && cd -
+./platform/deployment_fargate/scripts/cdk_deploy_fleet_from_infra_aws.sh \
+  --environment dev \
+  --parameters ...
 # Option B: pass every fleet parameter explicitly
 make cdk-deploy-fleet FLEET_CDK_ARGS='--parameters ...'
 make cdk-deploy-control-plane CONTROL_PLANE_CDK_ARGS='--parameters ...'

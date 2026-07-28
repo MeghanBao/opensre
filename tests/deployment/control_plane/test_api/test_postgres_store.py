@@ -11,6 +11,7 @@ import pytest
 
 from platform.deployment_fargate.api_control_plane.db import SCHEMA
 from platform.deployment_fargate.api_control_plane.db.db_client import ControlPlaneDbClient
+from platform.deployment_fargate.api_control_plane.db.schema import MIGRATIONS
 from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRunSource,
     AgentRunStatus,
@@ -32,6 +33,9 @@ class _FakeCursor:
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self._row
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return [self._row] if self._row is not None else []
 
     def __enter__(self) -> _FakeCursor:
         return self
@@ -70,7 +74,13 @@ def _install_fake_psycopg2(
     database = _FakeDatabase()
 
     class _FakePool:
-        def __init__(self, _minconn: int, _maxconn: int, dsn: str) -> None:
+        def __init__(
+            self,
+            _minconn: int,
+            _maxconn: int,
+            dsn: str,
+            **_kwargs: Any,
+        ) -> None:
             self.dsn = dsn
 
         def getconn(self) -> _FakeConnection:
@@ -121,6 +131,7 @@ def test_schema_supports_metadata_only_credentials_dedup_and_leases() -> None:
     assert "secret_arn TEXT NOT NULL" in SCHEMA
     assert "secret_value" not in SCHEMA
     assert "plaintext" not in SCHEMA
+    assert MIGRATIONS[0] == ("0001_initial", SCHEMA)
 
 
 def test_enqueue_agent_run_is_idempotent_for_stable_source_event(

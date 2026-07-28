@@ -11,34 +11,17 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
-from platform.deployment_fargate.api_control_plane.db.db_client import ControlPlaneDbClient
 from platform.deployment_fargate.api_control_plane.handler import ControlPlaneApi
-from platform.deployment_fargate.api_control_plane.utils.ports import (
-    AgentRunRepository,
-    LifecycleService,
-    TenantApiCredentialRepository,
-)
-from platform.deployment_fargate.api_public_forwarder.authorizer import (
-    AwsSecretsManagerReader,
-    BearerAuthorizer,
-)
-from platform.deployment_fargate.api_public_forwarder.handler import PublicApiHandler
-from platform.deployment_fargate.utils.http_lambda import header, is_authorizer_event, response
+from platform.deployment_fargate.api_control_plane.utils.ports import LifecycleService
+from platform.deployment_fargate.utils.http_lambda import response
 
 _DEFAULT_LIFECYCLE_FACTORY = (
     "platform.deployment_fargate.api_control_plane.methods.fargate_container_service:"
     "create_fargate_container_lifecycle_from_environment"
 )
-
-
-class ControlPlaneRepository(
-    AgentRunRepository,
-    TenantApiCredentialRepository,
-    Protocol,
-):
-    """Combined repository capabilities required by the Lambda."""
+_DATABASE_URL_SECRET_ARN_ENV = "OPENSRE_CONTROL_PLANE_DATABASE_URL_SECRET_ARN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +32,14 @@ class RuntimeConfig:
     lifecycle_role_arns: frozenset[str]
     aws_region: str
     lifecycle_factory: str = _DEFAULT_LIFECYCLE_FACTORY
+    database_url_secret_arn: str | None = None
 
     @classmethod
     def from_environment(cls) -> RuntimeConfig:
-        database_url = _required_environment("DATABASE_URL")
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        database_url_secret_arn = os.getenv(_DATABASE_URL_SECRET_ARN_ENV, "").strip()
+        if not database_url and not database_url_secret_arn:
+            raise RuntimeError(f"DATABASE_URL or {_DATABASE_URL_SECRET_ARN_ENV} is required")
         region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "")).strip()
         if not region:
             raise RuntimeError("AWS_REGION is required")
@@ -71,77 +58,45 @@ class RuntimeConfig:
             lifecycle_role_arns=role_arns,
             aws_region=region,
             lifecycle_factory=lifecycle_factory,
+            database_url_secret_arn=database_url_secret_arn or None,
         )
 
 
 class LambdaApp:
-    """Thin composition root routing lifecycle, public API, and authorizer events."""
+    """Thin composition root routing lifecycle API events."""
 
-    def __init__(
-        self,
-        *,
-        control_plane: ControlPlaneApi,
-        public_api: PublicApiHandler,
-        bearer_authorizer: BearerAuthorizer,
-    ) -> None:
+    def __init__(self, *, control_plane: ControlPlaneApi) -> None:
         self._control_plane = control_plane
-        self._public_api = public_api
-        self._bearer_authorizer = bearer_authorizer
 
     def handle(self, event: dict[str, Any], context: object = None) -> dict[str, Any]:
-        if is_authorizer_event(event):
-            return self.authorize_run_route(event)
         path = event.get("rawPath") or event.get("path")
         if isinstance(path, str) and path.startswith("/v1/organizations/"):
             return self._control_plane.handle(event, context)
-        if isinstance(path, str) and (path == "/v1/runs" or path.startswith("/v1/runs/")):
-            return self._public_api.handle(event, context)
         return response(404, {"error": "not_found"})
-
-    def authorize_run_route(self, event: dict[str, Any]) -> dict[str, Any]:
-        authorization = header(event, "authorization")
-        tenant = self._bearer_authorizer.authorize(authorization)
-        if tenant is None:
-            return {"isAuthorized": False}
-        return {
-            "isAuthorized": True,
-            "context": {
-                "organization_id": tenant.organization_id,
-                "key_id": tenant.key_id,
-            },
-        }
 
 
 def build_runtime_api(
     config: RuntimeConfig | None = None,
     *,
     lifecycle: LifecycleService | None = None,
-    store: ControlPlaneRepository | None = None,
-    secrets_client: Any | None = None,
 ) -> LambdaApp:
     """Build the production application using injected values or real SDK clients."""
 
     resolved = config or RuntimeConfig.from_environment()
-    repository = store or ControlPlaneDbClient(
-        resolved.database_url,
-        initialize_schema=False,
-    )
-    if secrets_client is None:
+    if resolved.database_url_secret_arn and not os.getenv("DATABASE_URL", "").strip():
         import boto3
 
         secrets_client = boto3.client("secretsmanager", region_name=resolved.aws_region)
+        os.environ["DATABASE_URL"] = _secret_string(
+            secrets_client,
+            resolved.database_url_secret_arn,
+        )
     lifecycle_service = lifecycle or _load_lifecycle_factory(resolved.lifecycle_factory)()
-    bearer_authorizer = BearerAuthorizer(
-        repository,
-        AwsSecretsManagerReader(secrets_client),
-    )
     return LambdaApp(
         control_plane=ControlPlaneApi(
             lifecycle=lifecycle_service,
             allowed_lifecycle_role_arns=resolved.lifecycle_role_arns,
         ),
-        public_api=PublicApiHandler(runs=repository),
-        bearer_authorizer=bearer_authorizer,
     )
 
 
@@ -175,3 +130,12 @@ def _required_environment(name: str) -> str:
     if not value:
         raise RuntimeError(f"{name} is required")
     return value
+
+
+def _secret_string(secrets_client: Any, secret_arn: str | None) -> str:
+    if not secret_arn:
+        raise RuntimeError("Database secret ARN is required")
+    secret = secrets_client.get_secret_value(SecretId=secret_arn).get("SecretString")
+    if not isinstance(secret, str) or not secret:
+        raise RuntimeError("Database secret must contain SecretString")
+    return secret

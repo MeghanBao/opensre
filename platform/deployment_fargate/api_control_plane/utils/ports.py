@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import timedelta
 from typing import Any, Protocol
 
@@ -25,11 +26,15 @@ class DeploymentRepository(Protocol):
         organization_id: str,
     ) -> TenantDeployment | None: ...
 
+    def list_tenant_deployments(self) -> tuple[TenantDeployment, ...]: ...
+
     def count_deployments_with_running_desired_state(
         self,
         *,
         exclude_organization_id: str | None = None,
     ) -> int: ...
+
+    def with_filesystem_isolation_lock(self) -> AbstractContextManager[None]: ...
 
 
 class AgentRunRepository(Protocol):

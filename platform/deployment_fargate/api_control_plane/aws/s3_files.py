@@ -89,6 +89,36 @@ class S3FilesAdapter:
         )
         return self._required_string(response, "mountTargetId")
 
+    def ensure_mount_targets(
+        self,
+        *,
+        file_system_id: str,
+        subnet_ids: tuple[str, ...],
+        security_group_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Ensure one shared filesystem mount target exists in every task subnet."""
+        if not subnet_ids or not security_group_ids:
+            raise ValueError("S3 Files mount targets require subnets and security groups")
+        existing = self._mount_targets_by_subnet(file_system_id)
+        mount_target_ids: list[str] = []
+        for subnet_id in subnet_ids:
+            mount_target_id = existing.get(subnet_id)
+            if mount_target_id is None:
+                try:
+                    mount_target_id = self.create_mount_target(
+                        file_system_id=file_system_id,
+                        subnet_id=subnet_id,
+                        security_group_ids=security_group_ids,
+                    )
+                except ClientError as error:
+                    if error.response.get("Error", {}).get("Code") != "ConflictException":
+                        raise
+                    mount_target_id = self._mount_targets_by_subnet(file_system_id).get(subnet_id)
+                    if mount_target_id is None:
+                        raise
+            mount_target_ids.append(mount_target_id)
+        return tuple(mount_target_ids)
+
     def create_tenant_access_point(
         self,
         *,
@@ -188,6 +218,29 @@ class S3FilesAdapter:
             fileSystemId=file_system_id,
             policy=json.dumps(policy, sort_keys=True),
         )
+
+    def _mount_targets_by_subnet(self, file_system_id: str) -> dict[str, str]:
+        mount_targets: dict[str, str] = {}
+        next_token: str | None = None
+        while True:
+            request: dict[str, Any] = {"fileSystemId": file_system_id}
+            if next_token is not None:
+                request["nextToken"] = next_token
+            response = self._client.list_mount_targets(**request)
+            raw_targets = response.get("mountTargets")
+            if not isinstance(raw_targets, list):
+                return mount_targets
+            for target in raw_targets:
+                if not isinstance(target, dict) or target.get("status") == "deleted":
+                    continue
+                subnet_id = target.get("subnetId")
+                mount_target_id = target.get("mountTargetId")
+                if isinstance(subnet_id, str) and isinstance(mount_target_id, str):
+                    mount_targets[subnet_id] = mount_target_id
+            token = response.get("nextToken")
+            if not isinstance(token, str) or not token:
+                return mount_targets
+            next_token = token
 
     @staticmethod
     def _file_system_from_response(response: dict[str, Any]) -> S3FilesFileSystem:

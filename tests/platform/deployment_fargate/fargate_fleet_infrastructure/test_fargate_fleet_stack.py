@@ -19,15 +19,17 @@ _TENANT_FLEET_ENV_OUTPUTS = (
     "OpensreGatewayLogGroup",
     "OpensreFargateSubnetIds",
     "OpensreFargateSecurityGroupIds",
+    "OpensreS3FilesMountSecurityGroupIds",
     "OpensreS3FilesystemId",
     "OpensreS3FilesystemArn",
     "OpensreGatewayImage",
     "OpensreCredentialsApiUrl",
+    "OpensreFargateResourcePrefix",
 )
 
 _REQUIRED_PARAMETERS = (
     "VpcId",
-    "PrivateSubnetIds",
+    "PublicSubnetIds",
     "S3FileSystemId",
     "S3FileSystemArn",
     "GatewayImage",
@@ -62,6 +64,26 @@ def test_gateway_security_group_is_outbound_only(fleet_template: Template) -> No
         {
             "GroupDescription": "Tenant Gateway Fargate tasks - outbound only",
             "SecurityGroupIngress": Match.absent(),
+        },
+    )
+
+
+def test_mount_target_security_group_accepts_only_gateway_nfs(
+    fleet_template: Template,
+) -> None:
+    fleet_template.has_resource_properties(
+        "AWS::EC2::SecurityGroup",
+        {
+            "GroupDescription": "S3 Files mount targets - NFS from Gateway tasks only",
+        },
+    )
+    fleet_template.has_resource_properties(
+        "AWS::EC2::SecurityGroupIngress",
+        {
+            "IpProtocol": "tcp",
+            "FromPort": 2049,
+            "ToPort": 2049,
+            "SourceSecurityGroupId": Match.any_value(),
         },
     )
 
@@ -123,6 +145,17 @@ def test_requires_explicit_network_and_existing_resource_parameters(
 ) -> None:
     for parameter_name in _REQUIRED_PARAMETERS:
         fleet_template.has_parameter(parameter_name, {})
+
+
+def test_gateway_image_parameter_requires_digest_pinned_ecr_uri(
+    fleet_template: Template,
+) -> None:
+    fleet_template.has_parameter(
+        "GatewayImage",
+        {
+            "AllowedPattern": Match.string_like_regexp("sha256"),
+        },
+    )
 
 
 def test_emits_tenant_fleet_config_outputs(fleet_template: Template) -> None:

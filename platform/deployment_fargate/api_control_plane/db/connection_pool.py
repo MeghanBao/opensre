@@ -9,6 +9,7 @@ from typing import Any
 
 _POOL_MIN_CONNECTIONS = 1
 _POOL_MAX_CONNECTIONS = 10
+_CONNECT_TIMEOUT_SECONDS = 5
 
 
 class PostgresConnectionPool:
@@ -28,6 +29,7 @@ class PostgresConnectionPool:
                     _POOL_MIN_CONNECTIONS,
                     _POOL_MAX_CONNECTIONS,
                     self._dsn,
+                    connect_timeout=_CONNECT_TIMEOUT_SECONDS,
                 )
             return self._pool
 

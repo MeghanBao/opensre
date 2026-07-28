@@ -14,6 +14,7 @@ from platform.deployment_fargate.api_control_plane.methods.lifecycle_errors impo
 )
 from platform.deployment_fargate.api_control_plane.methods.lifecycle_support import (
     key_id,
+    reconcile_file_system_isolation,
     record_failure,
     service_name,
     service_spec,
@@ -48,7 +49,14 @@ def delete_fargate_container(
     deployment = context.repository.fetch_tenant_deployment_by_organization_id(organization_id)
     if deployment is None:
         raise LifecycleNotFoundError
-    if deployment.desired_state is DeploymentDesiredState.DELETED:
+    # Only treat delete as terminal when both desired and actual are DELETED.
+    # Retries must continue after a failure mid-delete or after a failed isolation
+    # reconcile that left actual=DELETED but dropped the filesystem policy update.
+    if (
+        deployment.desired_state is DeploymentDesiredState.DELETED
+        and deployment.actual_state is DeploymentActualState.DELETED
+    ):
+        reconcile_file_system_isolation(context)
         return deployment
 
     deleting = replace(
@@ -78,12 +86,15 @@ def delete_fargate_container(
             cluster=context.config.cluster_arn,
             service_name=container_service_name,
         )
-        if deployment.task_definition_arn:
-            context.ecs.deregister_task_definition(deployment.task_definition_arn)
+        task_definition_arn = deployment.task_definition_arn or (
+            service.task_definition_arn if service is not None else None
+        )
+        if task_definition_arn:
+            context.ecs.deregister_task_definition(task_definition_arn)
 
         context.repository.disable_active_tenant_api_credentials_for_organization(organization_id)
         _disable_credential_secrets(context, organization_id, deployment)
-        return context.repository.upsert_tenant_deployment(
+        deleted = context.repository.upsert_tenant_deployment(
             replace(
                 deleting,
                 actual_state=DeploymentActualState.DELETED,
@@ -92,6 +103,8 @@ def delete_fargate_container(
                 updated_at=context.clock(),
             )
         )
+        reconcile_file_system_isolation(context)
+        return deleted
     except Exception:
         record_failure(context, deleting, code="GATEWAY_DELETE_FAILED")
         raise LifecycleOperationError(code="GATEWAY_DELETE_FAILED") from None

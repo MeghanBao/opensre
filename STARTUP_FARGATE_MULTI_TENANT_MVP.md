@@ -6,15 +6,17 @@ Launch the smallest credible multi-tenant remote-agent system:
 
 - one independently controlled ECS Fargate Gateway service per organization;
 - agent turns and the scheduler run inside that Gateway process;
-- one Lambda behind API Gateway provides lifecycle and agent-run APIs;
+- separate Lambdas behind HTTP APIs provide lifecycle and agent-run APIs;
 - Neon stores deployment state and acts as the low-volume run queue;
 - one shared Amazon S3 Files filesystem has one enforced access point per organization;
 - Slack Socket Mode, Telegram polling, credentials retrieval, and Neon polling are
   outbound connections, so Gateway tasks need no stable inbound endpoint.
 
-The MVP uses Python and boto3 rather than Terraform. It reuses existing VPCs, subnets,
-ECR repositories, and Neon infrastructure. SQS, DynamoDB, ALB, Service Connect, Cloud
-Map, task-IP registries, standalone agent tasks, and autoscaling are deferred.
+The MVP uses Python and boto3 rather than Terraform. It reuses an existing VPC,
+explicit public subnets, ECR repositories, and Neon infrastructure. Gateway
+tasks receive public IPs for outbound access; NAT is not provisioned. SQS,
+DynamoDB, ALB, Service Connect, Cloud Map, task-IP registries, standalone agent
+tasks, and autoscaling are deferred.
 
 Each active organization incurs one continuously billed Fargate task. `SMALL` is the
 default, and the deployment has a configurable active-organization cap. Stopping an
@@ -221,7 +223,8 @@ Focused tests:
 
 ```bash
 uv run pytest tests/deployment/control_plane/test_lifecycle.py
-uv run pytest tests/deployment/control_plane/test_api/test_authorizer.py tests/deployment/control_plane/test_api/test_handler.py tests/deployment/control_plane/test_api/test_http_api.py test_api/test_runtime.py
+uv run pytest tests/deployment/control_plane/test_api/test_authorizer.py tests/deployment/control_plane/test_api/test_handler.py tests/deployment/control_plane/test_api/test_runtime.py
+uv run --extra cdk pytest tests/platform/deployment_fargate/fargate_fleet_infrastructure tests/platform/deployment_fargate/api_control_plane_infrastructure tests/platform/deployment_fargate/api_public_forwarder_infrastructure
 uv run pytest gateway/tests/runtime/test_credential_hydration.py gateway/tests/runtime/test_remote_run_worker.py gateway/tests/runtime/test_concurrency_gate.py gateway/tests/runtime/test_manager.py gateway/tests/runtime/test_turn_handler.py
 ```
 
@@ -234,6 +237,7 @@ make lint
 make format-check
 make typecheck
 make test-scope
+make cdk-verify
 make verify-integrations
 uv run pytest tests/deployment/control_plane gateway/tests/runtime/test_credential_hydration.py gateway/tests/runtime/test_remote_run_worker.py
 ```

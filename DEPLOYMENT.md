@@ -79,32 +79,47 @@ make destroy-gateway-direct
 
 ---
 
-## Fargate multi-tenant fleet (Python CDK)
+## Fargate multi-tenant deployment (Python CDK)
 
-The shared ECS Fargate foundation (cluster, outbound-only security group, CloudWatch
-log group, ECS execution role) is defined as **infrastructure as code** under
+The shared ECS Fargate foundation is defined under
 [`platform/deployment_fargate/fargate_fleet_infrastructure/`](platform/deployment_fargate/fargate_fleet_infrastructure/).
+The IAM lifecycle Lambda, schema migration, and routes are under
+[`platform/deployment_fargate/api_control_plane_infrastructure/`](platform/deployment_fargate/api_control_plane_infrastructure/).
+The bearer public-run Lambda, authorizer, and `/v1/runs` routes are under
+[`platform/deployment_fargate/api_public_forwarder_infrastructure/`](platform/deployment_fargate/api_public_forwarder_infrastructure/).
 
 Per-organization Gateway services, task definitions, tenant IAM roles, secrets, and
 S3 Files access points are still created by the Python control-plane lifecycle
 ([`platform/deployment_fargate/api_control_plane/`](platform/deployment_fargate/api_control_plane/)).
+The lifecycle also ensures one filesystem mount target per configured subnet and
+reconciles the filesystem-wide tenant isolation policy.
 
 ### Prerequisites
 
-1. Existing VPC and **private** subnet IDs for Gateway tasks.
+1. Existing VPC and public subnet IDs for Gateway tasks. The MVP assigns public
+   IPs so tasks have outbound access without provisioning NAT.
 2. Existing S3 Files filesystem ID/ARN, ECR gateway image (digest-pinned), and credentials API URL.
-3. `uv sync --extra cdk` and AWS CDK CLI v2 (**2.1133.0+**; `npm install -g aws-cdk@2`).
-4. One-time `cdk bootstrap` in the target account/region.
+3. A Secrets Manager secret containing the Postgres `DATABASE_URL`, plus the IAM
+   role ARNs allowed to call lifecycle routes.
+4. Docker for the Python 3.12 x86_64 Lambda bundles.
+5. `uv sync --extra cdk` and AWS CDK CLI v2 (**2.1133.0+**; `npm install -g aws-cdk@2`).
+6. One-time `cdk bootstrap` in the target account/region.
+7. Before provisioning each tenant, its credentials bootstrap secret.
 
-### Deploy shared fleet
+### Deploy
 
 ```bash
-make cdk-synth    # validate template locally
-make cdk-deploy   # deploy (pass VPC/subnet/filesystem/image parameters — see infrastructure README)
+make cdk-synth
+make cdk-deploy-fleet FLEET_CDK_ARGS='--parameters ...'
+make cdk-deploy-control-plane CONTROL_PLANE_CDK_ARGS='--parameters ...'
+make cdk-deploy-public-forwarder PUBLIC_FORWARDER_CDK_ARGS='--parameters ...'
 ```
 
-Copy stack outputs into the control-plane Lambda environment using
-[`.env.fargate-fleet.example`](.env.fargate-fleet.example) as a template.
+Both API stacks import fleet outputs. Each takes a Secrets Manager ARN for
+`DATABASE_URL`; the control-plane stack also takes lifecycle caller IAM role
+ARNs. The control-plane deployment custom resource applies the idempotent
+Postgres schema before the lifecycle HTTP API becomes available — deploy it
+before the public forwarder so run tables exist.
 
 Verify without AWS credentials:
 
@@ -118,8 +133,11 @@ Tear down:
 make cdk-destroy
 ```
 
-See [`platform/deployment_fargate/fargate_fleet_infrastructure/README.md`](platform/deployment_fargate/fargate_fleet_infrastructure/README.md)
-for parameter details and example `cdk deploy` invocations.
+See the fleet,
+[`control-plane infrastructure`](platform/deployment_fargate/api_control_plane_infrastructure/README.md),
+and
+[`public-forwarder infrastructure`](platform/deployment_fargate/api_public_forwarder_infrastructure/README.md)
+READMEs for parameter details and example deploy invocations.
 
 ---
 

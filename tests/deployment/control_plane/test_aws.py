@@ -228,6 +228,33 @@ def test_creates_s3_files_resources_with_tenant_root_and_posix_identity() -> Non
     )
 
 
+def test_ensures_only_missing_s3_files_mount_targets() -> None:
+    s3files = MagicMock()
+    s3files.list_mount_targets.return_value = {
+        "mountTargets": [
+            {
+                "mountTargetId": "mt-a",
+                "subnetId": "subnet-a",
+                "status": "available",
+            }
+        ]
+    }
+    s3files.create_mount_target.return_value = {"mountTargetId": "mt-b"}
+
+    mount_target_ids = S3FilesAdapter(s3files).ensure_mount_targets(
+        file_system_id="fs-123",
+        subnet_ids=("subnet-a", "subnet-b"),
+        security_group_ids=("sg-mount",),
+    )
+
+    assert mount_target_ids == ("mt-a", "mt-b")
+    s3files.create_mount_target.assert_called_once_with(
+        fileSystemId="fs-123",
+        subnetId="subnet-b",
+        securityGroups=["sg-mount"],
+    )
+
+
 def test_reuses_matching_s3_files_access_point_after_idempotency_conflict() -> None:
     s3files = MagicMock()
     s3files.create_access_point.side_effect = ClientError(

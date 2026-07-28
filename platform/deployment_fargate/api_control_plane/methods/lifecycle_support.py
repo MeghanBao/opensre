@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import replace
 
 from platform.deployment_fargate.api_control_plane.aws.ecs import (
     FargateServiceSpec,
     FargateServiceState,
 )
+from platform.deployment_fargate.api_control_plane.aws.iam import TenantMountBinding
 from platform.deployment_fargate.api_control_plane.methods.lifecycle_context import (
     LifecycleContext,
 )
@@ -25,13 +25,34 @@ from platform.deployment_fargate.api_control_plane.utils.models import (
     DeploymentDesiredState,
     TenantDeployment,
 )
+from platform.deployment_fargate.utils.http_lambda import organization_id_pattern
 
-_ORGANIZATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
+_ORGANIZATION_ID = organization_id_pattern()
 
 
 def validate_organization_id(organization_id: str) -> None:
     if not _ORGANIZATION_ID.fullmatch(organization_id):
         raise LifecycleValidationError
+
+
+def reconcile_file_system_isolation(context: LifecycleContext) -> None:
+    """Replace the shared filesystem policy from current non-deleted deployments."""
+    with context.repository.with_filesystem_isolation_lock():
+        bindings = {
+            deployment.task_role_arn: TenantMountBinding(
+                task_role_arn=deployment.task_role_arn,
+                access_point_arn=deployment.s3_access_point_arn,
+            )
+            for deployment in context.repository.list_tenant_deployments()
+            if deployment.desired_state is not DeploymentDesiredState.DELETED
+            and deployment.task_role_arn is not None
+            and deployment.s3_access_point_arn is not None
+        }
+        context.s3_files.put_isolation_policy(
+            file_system_id=context.config.file_system_id,
+            file_system_arn=context.config.file_system_arn,
+            tenant_bindings=tuple(bindings[role_arn] for role_arn in sorted(bindings)),
+        )
 
 
 def require_live_deployment(

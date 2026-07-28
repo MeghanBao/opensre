@@ -15,6 +15,7 @@ from platform.deployment_fargate.api_control_plane.methods.lifecycle_context imp
 from platform.deployment_fargate.api_control_plane.methods.lifecycle_errors import (
     LifecycleError,
     LifecycleOperationError,
+    LifecycleValidationError,
 )
 from platform.deployment_fargate.api_control_plane.methods.lifecycle_support import (
     actual_state,
@@ -23,6 +24,7 @@ from platform.deployment_fargate.api_control_plane.methods.lifecycle_support imp
     client_token,
     key_id,
     public_secret_name,
+    reconcile_file_system_isolation,
     record_failure,
     service_name,
     service_spec,
@@ -101,7 +103,14 @@ def put_fargate_container(
     failure_state = pending
 
     try:
+        context.s3_files.ensure_mount_targets(
+            file_system_id=context.config.file_system_id,
+            subnet_ids=context.config.subnet_ids,
+            security_group_ids=context.config.mount_security_group_ids,
+        )
         secret_name = bootstrap_secret_name(context, organization_id)
+        if not context.secrets.secret_exists(secret_name):
+            raise LifecycleValidationError
         context.secrets.enable_secret_access(secret_name)
         access_point = context.s3_files.create_tenant_access_point(
             file_system_id=context.config.file_system_id,
@@ -132,6 +141,8 @@ def put_fargate_container(
             tags=tags(organization_id, enabled=True),
         )
         failure_state = replace(failure_state, task_role_arn=task_role_arn)
+        context.repository.upsert_tenant_deployment(failure_state)
+        reconcile_file_system_isolation(context)
         task_definition_arn = _ensure_task_definition(
             context,
             organization_id=organization_id,

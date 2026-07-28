@@ -20,6 +20,7 @@ class TenantFleetConfig:
     aws_region: str
     subnet_ids: tuple[str, ...]
     security_group_ids: tuple[str, ...]
+    mount_security_group_ids: tuple[str, ...]
     tenant_uid: int = 10001
     tenant_gid: int = 10001
     resource_prefix: str = "opensre"
@@ -42,6 +43,9 @@ class TenantFleetConfig:
             aws_region=region,
             subnet_ids=_required_csv_environment("OPENSRE_FARGATE_SUBNET_IDS"),
             security_group_ids=_required_csv_environment("OPENSRE_FARGATE_SECURITY_GROUP_IDS"),
+            mount_security_group_ids=_required_csv_environment(
+                "OPENSRE_S3_FILES_MOUNT_SECURITY_GROUP_IDS"
+            ),
             tenant_uid=_positive_integer_environment("OPENSRE_TENANT_UID", 10001),
             tenant_gid=_positive_integer_environment("OPENSRE_TENANT_GID", 10001),
             resource_prefix=os.getenv("OPENSRE_FARGATE_RESOURCE_PREFIX", "opensre").strip(),

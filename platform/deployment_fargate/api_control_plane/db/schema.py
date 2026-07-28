@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 DEPLOYMENT_COLUMNS = """
 organization_id, desired_state, actual_state, size_profile, cluster_arn,
 service_arn, task_definition_arn, task_role_arn, s3_filesystem_arn,
@@ -68,3 +70,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_source_event
 CREATE INDEX IF NOT EXISTS agent_runs_claim
     ON agent_runs (organization_id, status, created_at);
 """
+
+MIGRATION_TABLE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS control_plane_schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+# Append-only. Existing entries must never be edited after deployment.
+MIGRATIONS: tuple[tuple[str, str], ...] = (("0001_initial", SCHEMA),)
+
+SCHEMA_VERSION = hashlib.sha256(
+    "\n".join(f"{version}\n{statement}" for version, statement in MIGRATIONS).encode()
+).hexdigest()

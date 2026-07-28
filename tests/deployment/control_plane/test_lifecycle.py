@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
@@ -13,7 +15,10 @@ from platform.deployment_fargate.api_control_plane.aws.ecs import (
     FargateServiceState,
     TenantEcsAdapter,
 )
-from platform.deployment_fargate.api_control_plane.aws.iam import TenantIamAdapter
+from platform.deployment_fargate.api_control_plane.aws.iam import (
+    TenantIamAdapter,
+    TenantMountBinding,
+)
 from platform.deployment_fargate.api_control_plane.aws.s3_files import (
     S3FilesAccessPoint,
     S3FilesAdapter,
@@ -74,6 +79,11 @@ class MemoryLifecycleRepository:
     ) -> TenantDeployment | None:
         return self.deployments.get(organization_id)
 
+    def list_tenant_deployments(self) -> tuple[TenantDeployment, ...]:
+        return tuple(
+            self.deployments[organization_id] for organization_id in sorted(self.deployments)
+        )
+
     def upsert_tenant_api_credential(
         self,
         credential: TenantApiCredential,
@@ -113,6 +123,10 @@ class MemoryLifecycleRepository:
             for deployment in self.deployments.values()
         )
 
+    @contextmanager
+    def with_filesystem_isolation_lock(self) -> Iterator[None]:
+        yield
+
 
 def _config() -> TenantFleetConfig:
     return TenantFleetConfig(
@@ -126,6 +140,7 @@ def _config() -> TenantFleetConfig:
         aws_region="eu-west-2",
         subnet_ids=("subnet-a", "subnet-b"),
         security_group_ids=("sg-gateway",),
+        mount_security_group_ids=("sg-s3files-mount",),
     )
 
 
@@ -142,6 +157,7 @@ def _factory_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "OPENSRE_GATEWAY_LOG_GROUP": "/opensre/gateways",
         "OPENSRE_FARGATE_SUBNET_IDS": "subnet-a,subnet-b",
         "OPENSRE_FARGATE_SECURITY_GROUP_IDS": "sg-gateway",
+        "OPENSRE_S3_FILES_MOUNT_SECURITY_GROUP_IDS": "sg-s3files-mount",
         "OPENSRE_MAX_ACTIVE_ORGANIZATIONS": "7",
     }
     for name, value in values.items():
@@ -167,7 +183,7 @@ def _dependencies() -> tuple[
     secrets.describe_secret_arn.side_effect = lambda secret_id: (
         PUBLIC_SECRET_ARN if "public-api" in secret_id else BOOTSTRAP_SECRET_ARN
     )
-    secrets.secret_exists.return_value = False
+    secrets.secret_exists.side_effect = lambda secret_id: "credentials-api-bootstrap" in secret_id
     secrets.create_public_api_credential.return_value = TenantPublicApiCredential(
         key_id="unused-by-lifecycle-test",
         secret_arn=PUBLIC_SECRET_ARN,
@@ -228,6 +244,16 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     assert result.deployment.task_definition_arn == TASK_DEFINITION_ARN
     assert result.deployment.service_arn == SERVICE_ARN
 
+    s3_files.ensure_mount_targets.assert_called_once_with(
+        file_system_id="fs-123",
+        subnet_ids=("subnet-a", "subnet-b"),
+        security_group_ids=("sg-s3files-mount",),
+    )
+    s3_files.put_isolation_policy.assert_called_with(
+        file_system_id="fs-123",
+        file_system_arn=FILE_SYSTEM_ARN,
+        tenant_bindings=(TenantMountBinding(TASK_ROLE_ARN, ACCESS_POINT_ARN),),
+    )
     access_point_request = s3_files.create_tenant_access_point.call_args.kwargs
     assert access_point_request["organization_id"] == "org-a"
     assert access_point_request["uid"] == 10001
@@ -261,7 +287,7 @@ def test_repeated_provision_reuses_task_service_and_public_secret() -> None:
         pending_count=0,
         status="ACTIVE",
     )
-    secrets.secret_exists.return_value = True
+    secrets.secret_exists.side_effect = lambda _secret_id: True
     secrets.describe_secret_arn.side_effect = lambda secret_id: (
         PUBLIC_SECRET_ARN if "public-api" in secret_id else BOOTSTRAP_SECRET_ARN
     )
@@ -303,7 +329,7 @@ def test_active_organization_cap_blocks_new_compute_but_not_reconciliation() -> 
         pending_count=0,
         status="ACTIVE",
     )
-    secrets.secret_exists.return_value = True
+    secrets.secret_exists.side_effect = lambda _secret_id: True
 
     repeated = lifecycle.provision_gateway("org-a")
     with pytest.raises(LifecycleCapacityError):
@@ -351,7 +377,7 @@ def test_size_change_registers_new_revision_and_updates_service() -> None:
         pending_count=0,
         status="ACTIVE",
     )
-    secrets.secret_exists.return_value = True
+    secrets.secret_exists.side_effect = lambda _secret_id: True
 
     result = lifecycle.provision_gateway("org-a", SizeProfile.MEDIUM)
 
@@ -374,7 +400,7 @@ def test_image_change_registers_new_revision_and_updates_service() -> None:
         pending_count=0,
         status="ACTIVE",
     )
-    secrets.secret_exists.return_value = True
+    secrets.secret_exists.side_effect = lambda _secret_id: True
 
     result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
 
@@ -436,7 +462,7 @@ def test_delete_removes_compute_disables_credentials_and_preserves_storage() -> 
         pending_count=0,
         status="ACTIVE",
     )
-    secrets.secret_exists.return_value = True
+    secrets.secret_exists.side_effect = lambda _secret_id: True
 
     deleted = lifecycle.delete_gateway("org-a")
     repeated = lifecycle.delete_gateway("org-a")

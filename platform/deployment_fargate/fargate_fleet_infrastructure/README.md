@@ -1,9 +1,12 @@
 # Shared Fargate fleet (Python CDK)
 
 This CDK app owns the **stable shared foundation** for the multi-tenant Gateway
-control plane. Per-organization ECS services, task definitions, IAM task roles,
-Secrets Manager records, and S3 Files access points remain in the Python
-tenant lifecycle under [`../api_control_plane/`](../api_control_plane/).
+control plane. The sibling
+[`api_control_plane_infrastructure/`](../api_control_plane_infrastructure/) and
+[`api_public_forwarder_infrastructure/`](../api_public_forwarder_infrastructure/)
+apps import its outputs. Per-organization ECS services, task definitions, IAM
+task roles, Secrets Manager records, and S3 Files access points remain in the
+Python tenant lifecycle under [`../api_control_plane/`](../api_control_plane/).
 
 ## What this stack creates
 
@@ -11,6 +14,7 @@ tenant lifecycle under [`../api_control_plane/`](../api_control_plane/).
 | --- | --- |
 | ECS Fargate cluster | Logical namespace for all tenant Gateway services |
 | Gateway task security group | Outbound-only; no inbound rules |
+| S3 Files mount-target security group | Accepts NFS only from Gateway tasks |
 | CloudWatch log group | Shared `awslogs` destination for Gateway containers |
 | ECS task execution role | Image pull + log write (managed execution policy) |
 
@@ -21,7 +25,7 @@ These resources are **not** created by this stack — pass explicit identifiers 
 | Parameter | Maps to env var |
 | --- | --- |
 | `VpcId` | (network placement only) |
-| `PrivateSubnetIds` | `OPENSRE_FARGATE_SUBNET_IDS` |
+| `PublicSubnetIds` | `OPENSRE_FARGATE_SUBNET_IDS` |
 | `S3FileSystemId` | `OPENSRE_S3_FILESYSTEM_ID` |
 | `S3FileSystemArn` | `OPENSRE_S3_FILESYSTEM_ARN` |
 | `GatewayImage` | `OPENSRE_GATEWAY_IMAGE` |
@@ -30,6 +34,8 @@ These resources are **not** created by this stack — pass explicit identifiers 
 
 Stack outputs echo the values needed by
 [`TenantFleetConfig`](../api_control_plane/utils/get_fleet_config.py).
+The control-plane lifecycle ensures the existing filesystem has one mount target
+in every configured public subnet using the mount-target security group.
 
 ## Prerequisites
 
@@ -61,11 +67,11 @@ Stack outputs echo the values needed by
 From repo root:
 
 ```bash
-make cdk-synth      # synthesize CloudFormation template
-make cdk-diff       # compare deployed stack to local template
-make cdk-deploy     # deploy (pass parameters via -c or --parameters)
-make cdk-destroy    # tear down shared fleet resources
-make cdk-verify     # run synth-level tests (no AWS credentials required)
+make cdk-synth       # synthesize fleet and control-plane templates
+make cdk-deploy-fleet FLEET_CDK_ARGS='--parameters ...'
+make cdk-deploy      # deploy fleet, then control plane
+make cdk-destroy     # destroy control plane, then fleet
+make cdk-verify      # run synth-level tests (no AWS credentials required)
 ```
 
 Example deploy with parameters:
@@ -74,12 +80,16 @@ Example deploy with parameters:
 cd platform/deployment_fargate/fargate_fleet_infrastructure
 uv run --extra cdk cdk deploy OpensreFargateFleet \
   --parameters VpcId=vpc-abc123 \
-  --parameters PrivateSubnetIds=subnet-a,subnet-b \
+  --parameters PublicSubnetIds=subnet-a,subnet-b \
   --parameters S3FileSystemId=fs-123 \
   --parameters S3FileSystemArn=arn:aws:s3files:us-east-1:123456789012:file-system/fs-123 \
-  --parameters GatewayImage=123456789012.dkr.ecr.us-east-1.amazonaws.com/opensre@sha256:abc... \
+  --parameters GatewayImage=123456789012.dkr.ecr.us-east-1.amazonaws.com/opensre@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --parameters CredentialsApiUrl=https://credentials.example.com
 ```
 
-After deploy, copy stack outputs into the control-plane Lambda environment. See
-[`.env.fargate-fleet.example`](../../../.env.fargate-fleet.example).
+The control-plane and public-forwarder stacks import these outputs directly; no
+manual environment copy is required. See
+[`api_control_plane_infrastructure/README.md`](../api_control_plane_infrastructure/README.md)
+and
+[`api_public_forwarder_infrastructure/README.md`](../api_public_forwarder_infrastructure/README.md)
+for their parameters.

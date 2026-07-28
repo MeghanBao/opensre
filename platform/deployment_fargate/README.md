@@ -7,34 +7,44 @@ EC2 AWS SDK primitives and the Telegram gateway AMI/systemd lifecycle live in
 [`../deployment_ec2/`](../deployment_ec2/)
 ([`telegram_gateway/`](../deployment_ec2/telegram_gateway/)).
 
-## Three deployment entities
+## Deployment areas
 
-Each entity owns its code under a dedicated package. Shared fleet IaC lives in
-`fargate_fleet_infrastructure/` (one CDK app per entity; add sibling `*_infrastructure/`
-folders as other entities gain IaC).
+Each area owns its code under a dedicated package. One CDK app per entity:
+shared fleet, control-plane lifecycle API, and public forwarder API.
 
 | Entity | Path | Purpose |
 | --- | --- | --- |
 | **Control plane** | [`api_control_plane/`](api_control_plane/) | Lambda lifecycle provisioning (IAM-protected `/v1/organizations/.../gateway` routes), tenant lifecycle, AWS adapters, and image build contracts. |
-| **Public API** | [`api_public_forwarder/`](api_public_forwarder/) | Bearer-authorizer-backed `/v1/runs` routes extracted from the Lambda handler. |
+| **Control-plane IaC** | [`api_control_plane_infrastructure/`](api_control_plane_infrastructure/) | Runtime and migration Lambdas, least-privilege roles, IAM HTTP API, logs, alarms, and fleet-output wiring. |
+| **Public API** | [`api_public_forwarder/`](api_public_forwarder/) | Bearer-authorizer-backed `/v1/runs` routes and Lambda composition root. |
+| **Public API IaC** | [`api_public_forwarder_infrastructure/`](api_public_forwarder_infrastructure/) | Public-run Lambda, REQUEST authorizer, routes, logs, alarms, and resource-prefix wiring. |
 | **Shared fleet (IaC)** | [`fargate_fleet_infrastructure/`](fargate_fleet_infrastructure/) | Python CDK stack for ECS cluster, gateway security group, log group, and execution role. |
 | **Gateway runtime** | [`../../gateway/`](../../gateway/) | Tenant Gateway process (Fargate task or legacy EC2/systemd). |
 
 Shared HTTP helpers for both Lambda handlers live in [`utils/http_lambda.py`](utils/http_lambda.py).
 
-The control-plane Lambda entry point is
-`platform.deployment_fargate.api_control_plane.runtime.lambda_handler`.
+Entry points:
+
+- Control plane: `platform.deployment_fargate.api_control_plane.runtime.lambda_handler`
+- Public forwarder: `platform.deployment_fargate.api_public_forwarder.runtime.lambda_handler`
 
 ## Fargate fleet (CDK)
 
 | Command | What it does |
 | --- | --- |
-| `make cdk-synth` | Synthesize shared Fargate fleet CloudFormation template |
-| `make cdk-deploy` | Deploy ECS cluster, gateway SG, log group, execution role |
-| `make cdk-destroy` | Tear down shared fleet stack |
+| `make cdk-synth` | Synthesize fleet, control-plane, and public-forwarder templates |
+| `make cdk-deploy-fleet` | Deploy ECS cluster, gateway SG, log group, execution role |
+| `make cdk-deploy-control-plane` | Deploy lifecycle Lambda, schema migration, and IAM HTTP API |
+| `make cdk-deploy-public-forwarder` | Deploy public-run Lambda and bearer HTTP API |
+| `make cdk-deploy` | Deploy all three stacks in dependency order |
+| `make cdk-destroy` | Tear down all stacks in reverse order |
 | `make cdk-verify` | Run synth-level CDK tests (no AWS credentials) |
 
-See [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md) and [`.env.fargate-fleet.example`](../../.env.fargate-fleet.example).
+See [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md),
+[api_control_plane_infrastructure/README.md](api_control_plane_infrastructure/README.md),
+[api_public_forwarder_infrastructure/README.md](api_public_forwarder_infrastructure/README.md),
+and [`.env.fargate-fleet.example`](../../.env.fargate-fleet.example) for local
+control-plane runs outside the deployed Lambda.
 
 ## Related: EC2 Telegram gateway
 

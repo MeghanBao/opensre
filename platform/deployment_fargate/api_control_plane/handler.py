@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import logging
 import re
+from http import HTTPStatus
 from typing import Any
 
 from platform.deployment_fargate.api_control_plane.auth.iam_auth import iam_principal_is_allowed
+from platform.deployment_fargate.api_control_plane.methods.lifecycle_errors import (
+    LifecycleCapacityError,
+    LifecycleError,
+    LifecycleNotFoundError,
+    LifecycleValidationError,
+)
 from platform.deployment_fargate.api_control_plane.methods.method_delete_fargate_container import (
     method_delete_fargate_container,
 )
@@ -27,6 +34,7 @@ from platform.deployment_fargate.api_control_plane.methods.method_put_fargate_co
 )
 from platform.deployment_fargate.api_control_plane.utils.ports import LifecycleService
 from platform.deployment_fargate.utils.http_lambda import (
+    ORGANIZATION_ID_SEGMENT,
     ClientRequestError,
     method_and_path,
     response,
@@ -35,12 +43,12 @@ from platform.deployment_fargate.utils.http_lambda import (
 logger = logging.getLogger(__name__)
 
 _LIFECYCLE_PATH = re.compile(
-    r"^/v1/organizations/(?P<organization_id>[A-Za-z0-9][A-Za-z0-9_-]{0,127})"
-    r"/gateway(?P<operation>/start|/stop)?$"
+    rf"^/v1/organizations/(?P<organization_id>{ORGANIZATION_ID_SEGMENT})"
+    r"/gateway(?P<operation>/start|/stop)?$",
 )
 _ROTATE_PATH = re.compile(
-    r"^/v1/organizations/(?P<organization_id>[A-Za-z0-9][A-Za-z0-9_-]{0,127})"
-    r"/api-credential/rotate$"
+    rf"^/v1/organizations/(?P<organization_id>{ORGANIZATION_ID_SEGMENT})"
+    r"/api-credential/rotate$",
 )
 
 
@@ -66,6 +74,14 @@ class ControlPlaneApi:
             return self._handle_lifecycle(event, method, path)
         except ClientRequestError as error:
             return response(error.status_code, {"error": error.code})
+        except LifecycleNotFoundError as error:
+            return response(HTTPStatus.NOT_FOUND, {"error": error.code})
+        except LifecycleValidationError as error:
+            return response(HTTPStatus.BAD_REQUEST, {"error": error.code})
+        except LifecycleCapacityError as error:
+            return response(HTTPStatus.CONFLICT, {"error": error.code})
+        except LifecycleError as error:
+            return response(HTTPStatus.BAD_GATEWAY, {"error": error.code})
         except Exception as error:  # noqa: BLE001 - Lambda boundary returns generic failures
             logger.error("Control-plane request failed (%s)", type(error).__name__)
             return response(500, {"error": "internal_error"})

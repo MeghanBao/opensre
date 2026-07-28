@@ -1,4 +1,4 @@
-"""HTTP proxy and authorizer tests for the control-plane Lambda."""
+"""HTTP proxy and authorizer tests for the control-plane and public-forwarder Lambdas."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from platform.deployment_fargate.api_control_plane.handler import ControlPlaneApi
-from platform.deployment_fargate.api_control_plane.runtime import LambdaApp
+from platform.deployment_fargate.api_control_plane.runtime import LambdaApp as ControlPlaneApp
 from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
     AgentRunSource,
@@ -23,6 +23,7 @@ from platform.deployment_fargate.api_control_plane.utils.models import (
 )
 from platform.deployment_fargate.api_public_forwarder.authorizer import BearerAuthorizer
 from platform.deployment_fargate.api_public_forwarder.handler import PublicApiHandler
+from platform.deployment_fargate.api_public_forwarder.runtime import LambdaApp as PublicForwarderApp
 
 _ALLOWED_ROLE = "arn:aws:iam::123456789012:role/saas-control-plane"
 _TOKEN = f"osre_key_12345678.{'x' * 32}"
@@ -124,20 +125,27 @@ class _Lifecycle:
         return _RotateResult("key_rotated1", _TOKEN)
 
 
-def _api() -> tuple[LambdaApp, _Lifecycle, _Runs]:
-    lifecycle = _Lifecycle()
+def _control_plane_app(lifecycle: _Lifecycle | None = None) -> tuple[ControlPlaneApp, _Lifecycle]:
+    resolved = lifecycle or _Lifecycle()
+    return (
+        ControlPlaneApp(
+            control_plane=ControlPlaneApi(
+                lifecycle=resolved,
+                allowed_lifecycle_role_arns=frozenset({_ALLOWED_ROLE}),
+            ),
+        ),
+        resolved,
+    )
+
+
+def _public_forwarder_app() -> tuple[PublicForwarderApp, _Runs]:
     runs = _Runs()
     credentials = _CredentialStore()
     return (
-        LambdaApp(
-            control_plane=ControlPlaneApi(
-                lifecycle=lifecycle,
-                allowed_lifecycle_role_arns=frozenset({_ALLOWED_ROLE}),
-            ),
+        PublicForwarderApp(
             public_api=PublicApiHandler(runs=runs),
             bearer_authorizer=BearerAuthorizer(credentials, _SecretReader()),
         ),
-        lifecycle,
         runs,
     )
 
@@ -177,7 +185,7 @@ def _payload(response: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_authorizer_event_returns_tenant_context_only_for_valid_bearer() -> None:
-    api, _, _ = _api()
+    api, _ = _public_forwarder_app()
     event = {
         "type": "REQUEST",
         "routeArn": "arn:aws:execute-api:eu-west-1:123:api/$default/POST/v1/runs",
@@ -193,7 +201,7 @@ def test_authorizer_event_returns_tenant_context_only_for_valid_bearer() -> None
 
 
 def test_lifecycle_requires_allowed_iam_principal_and_provisions_default_profile() -> None:
-    api, lifecycle, _ = _api()
+    api, lifecycle = _control_plane_app()
     path = "/v1/organizations/org_123/gateway"
 
     forbidden = api.handle(_event("PUT", path, body={}))
@@ -254,7 +262,7 @@ def test_lifecycle_routes_reject_unsupported_methods(method: str, path: str) -> 
 
 
 def test_run_organization_comes_only_from_authorizer_context() -> None:
-    api, _, runs = _api()
+    api, runs = _public_forwarder_app()
 
     rejected = api.handle(
         _event(
@@ -289,7 +297,7 @@ def test_run_organization_comes_only_from_authorizer_context() -> None:
 
 
 def test_get_run_is_tenant_scoped_and_cross_tenant_returns_not_found() -> None:
-    api, _, runs = _api()
+    api, runs = _public_forwarder_app()
     created = api.handle(
         _event("POST", "/v1/runs", tenant="org_123", body={"prompt": "Investigate"})
     )

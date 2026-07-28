@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -13,8 +15,9 @@ from platform.deployment_fargate.api_control_plane.db.connection_pool import (
 from platform.deployment_fargate.api_control_plane.db.schema import (
     CREDENTIAL_COLUMNS,
     DEPLOYMENT_COLUMNS,
+    MIGRATION_TABLE_SCHEMA,
+    MIGRATIONS,
     RUN_COLUMNS,
-    SCHEMA,
 )
 from platform.deployment_fargate.api_control_plane.utils.models import (
     AgentRun,
@@ -27,6 +30,9 @@ from platform.deployment_fargate.api_control_plane.utils.models import (
     TenantDeployment,
 )
 
+# Stable advisory-lock key for filesystem isolation policy writers.
+_FILESYSTEM_ISOLATION_LOCK_KEY = 0x4F53_4653_4953_4F4C  # "OSFSISOL"
+
 
 class ControlPlaneDbClient:
     """Pooled Postgres client for deployment, run, and credential metadata."""
@@ -34,8 +40,24 @@ class ControlPlaneDbClient:
     def __init__(self, dsn: str, *, initialize_schema: bool = True) -> None:
         self._pool = PostgresConnectionPool(dsn)
         if initialize_schema:
-            with self._pool.connection() as conn, conn.cursor() as cursor:
-                cursor.execute(SCHEMA)
+            self._apply_schema_migrations()
+
+    def _apply_schema_migrations(self) -> None:
+        with self._pool.connection() as conn, conn.cursor() as cursor:
+            cursor.execute(MIGRATION_TABLE_SCHEMA)
+            cursor.execute("SELECT version FROM control_plane_schema_migrations")
+            applied_versions = {str(row[0]) for row in cursor.fetchall()}
+            for version, statement in MIGRATIONS:
+                if version in applied_versions:
+                    continue
+                cursor.execute(statement)
+                cursor.execute(
+                    """
+                    INSERT INTO control_plane_schema_migrations (version)
+                    VALUES (%s)
+                    """,
+                    (version,),
+                )
 
     def upsert_tenant_deployment(self, deployment: TenantDeployment) -> TenantDeployment:
         with self._pool.connection() as conn, conn.cursor() as cursor:
@@ -99,6 +121,33 @@ class ControlPlaneDbClient:
             )
             row = cursor.fetchone()
             return _map_deployment_row_to_tenant_deployment(row) if row else None
+
+    def list_tenant_deployments(self) -> tuple[TenantDeployment, ...]:
+        with self._pool.connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT {DEPLOYMENT_COLUMNS}
+                FROM tenant_deployments
+                ORDER BY organization_id
+                """
+            )
+            return tuple(_map_deployment_row_to_tenant_deployment(row) for row in cursor.fetchall())
+
+    @contextmanager
+    def with_filesystem_isolation_lock(self) -> Iterator[None]:
+        """Serialize filesystem policy rewrites across concurrent lifecycle writers."""
+        with self._pool.connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_lock(%s)",
+                (_FILESYSTEM_ISOLATION_LOCK_KEY,),
+            )
+            try:
+                yield
+            finally:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_FILESYSTEM_ISOLATION_LOCK_KEY,),
+                )
 
     def count_deployments_with_running_desired_state(
         self,

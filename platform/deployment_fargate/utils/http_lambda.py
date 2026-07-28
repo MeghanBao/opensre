@@ -11,7 +11,8 @@ from enum import Enum
 from typing import Any
 
 _MAX_BODY_BYTES = 1 * 1024 * 1024
-_ORGANIZATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+ORGANIZATION_ID_SEGMENT = r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}"
+_ORGANIZATION_ID_PATTERN = re.compile(rf"^{ORGANIZATION_ID_SEGMENT}$")
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,128}$")
 
 

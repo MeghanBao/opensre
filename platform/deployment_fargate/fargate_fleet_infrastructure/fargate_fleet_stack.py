@@ -11,6 +11,8 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from constructs import Construct
 
+from platform.deployment_fargate.infrastructure_exports import fleet_export_name
+
 
 class FargateFleetStack(Stack):
     """Provision stable shared resources consumed by ``TenantFleetConfig``.
@@ -28,13 +30,13 @@ class FargateFleetStack(Stack):
             type="AWS::EC2::VPC::Id",
             description="Existing VPC where tenant Gateway Fargate tasks run",
         )
-        private_subnet_ids = CfnParameter(
+        public_subnet_ids = CfnParameter(
             self,
-            "PrivateSubnetIds",
+            "PublicSubnetIds",
             type="CommaDelimitedList",
             description=(
-                "Explicit private subnet IDs for Gateway tasks "
-                "(comma-separated; never auto-selected)"
+                "Explicit public subnet IDs for Gateway tasks; the MVP assigns "
+                "public IPs and does not provision NAT"
             ),
         )
         s3_file_system_id = CfnParameter(
@@ -53,6 +55,11 @@ class FargateFleetStack(Stack):
             self,
             "GatewayImage",
             type="String",
+            allowed_pattern=(
+                r"[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/"
+                r"[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}"
+            ),
+            constraint_description="Must be an immutable ECR image URI pinned by sha256",
             description="Immutable ECR gateway image URI pinned by sha256 digest",
         )
         credentials_api_url = CfnParameter(
@@ -60,6 +67,8 @@ class FargateFleetStack(Stack):
             "CredentialsApiUrl",
             type="String",
             default="",
+            allowed_pattern=r"^$|^https://[^ ]+$",
+            constraint_description="Must be empty or an HTTPS URL",
             description="Credentials API base URL for Gateway bootstrap (non-secret)",
         )
         resource_prefix = CfnParameter(
@@ -67,6 +76,10 @@ class FargateFleetStack(Stack):
             "ResourcePrefix",
             type="String",
             default="opensre",
+            allowed_pattern=r"[a-z][a-z0-9-]{1,31}",
+            constraint_description=(
+                "Must be 2-32 lowercase letters, digits, or hyphens, starting with a letter"
+            ),
             description="Prefix for shared fleet resource names",
         )
 
@@ -82,7 +95,7 @@ class FargateFleetStack(Stack):
             "GatewayCluster",
             cluster_name=Fn.join("", [resource_prefix.value_as_string, "-gateways"]),
             vpc=vpc,
-            container_insights=True,
+            container_insights_v2=ecs.ContainerInsights.ENABLED,
         )
         cluster.enable_fargate_capacity_providers()
 
@@ -96,6 +109,22 @@ class FargateFleetStack(Stack):
                 "",
                 [resource_prefix.value_as_string, "-gateway-tasks"],
             ),
+        )
+        mount_security_group = ec2.SecurityGroup(
+            self,
+            "S3FilesMountTargetSecurityGroup",
+            vpc=vpc,
+            description="S3 Files mount targets - NFS from Gateway tasks only",
+            allow_all_outbound=False,
+            security_group_name=Fn.join(
+                "",
+                [resource_prefix.value_as_string, "-s3files-mount-targets"],
+            ),
+        )
+        mount_security_group.add_ingress_rule(
+            gateway_security_group,
+            ec2.Port.tcp(2049),
+            "Allow S3 Files mounts from Gateway tasks",
         )
 
         log_group = logs.LogGroup(
@@ -122,13 +151,15 @@ class FargateFleetStack(Stack):
         self._emit_fleet_outputs(
             execution_role=execution_role,
             gateway_security_group=gateway_security_group,
+            mount_security_group=mount_security_group,
             log_group=log_group,
             cluster_arn=cluster.cluster_arn,
-            private_subnet_ids=private_subnet_ids,
+            public_subnet_ids=public_subnet_ids,
             s3_file_system_id=s3_file_system_id,
             s3_file_system_arn=s3_file_system_arn,
             gateway_image=gateway_image,
             credentials_api_url=credentials_api_url,
+            resource_prefix=resource_prefix,
         )
 
     def _emit_fleet_outputs(
@@ -137,12 +168,14 @@ class FargateFleetStack(Stack):
         cluster_arn: str,
         execution_role: iam.Role,
         gateway_security_group: ec2.SecurityGroup,
+        mount_security_group: ec2.SecurityGroup,
         log_group: logs.LogGroup,
-        private_subnet_ids: CfnParameter,
+        public_subnet_ids: CfnParameter,
         s3_file_system_id: CfnParameter,
         s3_file_system_arn: CfnParameter,
         gateway_image: CfnParameter,
         credentials_api_url: CfnParameter,
+        resource_prefix: CfnParameter,
     ) -> None:
         """Emit outputs aligned with ``TenantFleetConfig`` environment variables."""
         outputs: tuple[tuple[str, Any, str], ...] = (
@@ -155,13 +188,18 @@ class FargateFleetStack(Stack):
             ("OpensreGatewayLogGroup", log_group.log_group_name, "OPENSRE_GATEWAY_LOG_GROUP"),
             (
                 "OpensreFargateSubnetIds",
-                Fn.join(",", private_subnet_ids.value_as_list),
+                Fn.join(",", public_subnet_ids.value_as_list),
                 "OPENSRE_FARGATE_SUBNET_IDS",
             ),
             (
                 "OpensreFargateSecurityGroupIds",
                 gateway_security_group.security_group_id,
                 "OPENSRE_FARGATE_SECURITY_GROUP_IDS",
+            ),
+            (
+                "OpensreS3FilesMountSecurityGroupIds",
+                mount_security_group.security_group_id,
+                "OPENSRE_S3_FILES_MOUNT_SECURITY_GROUP_IDS",
             ),
             (
                 "OpensreS3FilesystemId",
@@ -179,6 +217,11 @@ class FargateFleetStack(Stack):
                 credentials_api_url.value_as_string,
                 "OPENSRE_CREDENTIALS_API_URL",
             ),
+            (
+                "OpensreFargateResourcePrefix",
+                resource_prefix.value_as_string,
+                "OPENSRE_FARGATE_RESOURCE_PREFIX",
+            ),
         )
         for logical_id, value, env_name in outputs:
             CfnOutput(
@@ -186,11 +229,5 @@ class FargateFleetStack(Stack):
                 logical_id,
                 value=value,
                 description=f"Maps to control-plane env var {env_name}",
-                export_name=_fleet_export_name(env_name),
+                export_name=fleet_export_name(env_name),
             )
-
-
-def _fleet_export_name(env_name: str) -> str:
-    """Build a CloudFormation export name for a ``TenantFleetConfig`` env var."""
-    # Export names allow only alphanumeric characters, colons, and hyphens.
-    return f"opensre-fleet:{env_name.replace('_', '-')}"

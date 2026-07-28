@@ -561,6 +561,14 @@ RULES: tuple[PathRule, ...] = (
         ("tests/platform/deployment_fargate/fargate_fleet_infrastructure/",),
     ),
     PathRule(
+        "platform/deployment_fargate/api_control_plane_infrastructure/",
+        ("tests/platform/deployment_fargate/api_control_plane_infrastructure/",),
+    ),
+    PathRule(
+        "platform/deployment_fargate/api_public_forwarder_infrastructure/",
+        ("tests/platform/deployment_fargate/api_public_forwarder_infrastructure/",),
+    ),
+    PathRule(
         "platform/deployment_fargate/",
         ("tests/deployment/", "tests/platform/deployment_fargate/"),
     ),

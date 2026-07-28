@@ -32,6 +32,7 @@ _REQUIRED_PARAMETERS = (
     "PublicSubnetIds",
     "S3FileSystemId",
     "S3FileSystemArn",
+    "S3FilesClientSecurityGroupId",
     "GatewayImage",
 )
 
@@ -156,6 +157,32 @@ def test_gateway_image_parameter_requires_digest_pinned_ecr_uri(
             "AllowedPattern": Match.string_like_regexp("sha256"),
         },
     )
+
+
+def test_s3_files_client_security_group_parameter_is_security_group_id(
+    fleet_template: Template,
+) -> None:
+    fleet_template.has_parameter(
+        "S3FilesClientSecurityGroupId",
+        {
+            "Type": "AWS::EC2::SecurityGroup::Id",
+        },
+    )
+
+
+def test_task_security_group_output_includes_external_client_sg(
+    fleet_template: Template,
+) -> None:
+    outputs = fleet_template.find_outputs("*")
+    security_groups = outputs["OpensreFargateSecurityGroupIds"]["Value"]
+    assert isinstance(security_groups, dict)
+    assert security_groups["Fn::Join"][0] == ","
+    joined = security_groups["Fn::Join"][1]
+    assert any(
+        isinstance(part, dict) and "Ref" in part and "S3FilesClientSecurityGroupId" in part["Ref"]
+        for part in joined
+    )
+    assert any(isinstance(part, dict) and "Fn::GetAtt" in part for part in joined)
 
 
 def test_emits_tenant_fleet_config_outputs(fleet_template: Template) -> None:

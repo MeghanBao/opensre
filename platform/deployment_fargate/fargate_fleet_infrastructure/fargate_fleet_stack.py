@@ -51,6 +51,15 @@ class FargateFleetStack(Stack):
             type="String",
             description="Existing S3 Files filesystem ARN shared by tenant Gateways",
         )
+        s3_files_client_security_group_id = CfnParameter(
+            self,
+            "S3FilesClientSecurityGroupId",
+            type="AWS::EC2::SecurityGroup::Id",
+            description=(
+                "Existing S3 Files client security group from opensre-infra-aws; "
+                "attached to Gateway tasks so mount targets accept NFS"
+            ),
+        )
         gateway_image = CfnParameter(
             self,
             "GatewayImage",
@@ -157,6 +166,7 @@ class FargateFleetStack(Stack):
             public_subnet_ids=public_subnet_ids,
             s3_file_system_id=s3_file_system_id,
             s3_file_system_arn=s3_file_system_arn,
+            s3_files_client_security_group_id=s3_files_client_security_group_id,
             gateway_image=gateway_image,
             credentials_api_url=credentials_api_url,
             resource_prefix=resource_prefix,
@@ -173,11 +183,19 @@ class FargateFleetStack(Stack):
         public_subnet_ids: CfnParameter,
         s3_file_system_id: CfnParameter,
         s3_file_system_arn: CfnParameter,
+        s3_files_client_security_group_id: CfnParameter,
         gateway_image: CfnParameter,
         credentials_api_url: CfnParameter,
         resource_prefix: CfnParameter,
     ) -> None:
         """Emit outputs aligned with ``TenantFleetConfig`` environment variables."""
+        gateway_task_security_group_ids = Fn.join(
+            ",",
+            [
+                gateway_security_group.security_group_id,
+                s3_files_client_security_group_id.value_as_string,
+            ],
+        )
         outputs: tuple[tuple[str, Any, str], ...] = (
             ("OpensreFargateClusterArn", cluster_arn, "OPENSRE_FARGATE_CLUSTER_ARN"),
             (
@@ -193,7 +211,7 @@ class FargateFleetStack(Stack):
             ),
             (
                 "OpensreFargateSecurityGroupIds",
-                gateway_security_group.security_group_id,
+                gateway_task_security_group_ids,
                 "OPENSRE_FARGATE_SECURITY_GROUP_IDS",
             ),
             (

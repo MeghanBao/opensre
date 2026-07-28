@@ -98,7 +98,10 @@ reconciles the filesystem-wide tenant isolation policy.
 
 1. Existing VPC and public subnet IDs for Gateway tasks. The MVP assigns public
    IPs so tasks have outbound access without provisioning NAT.
-2. Existing S3 Files filesystem ID/ARN, ECR gateway image (digest-pinned), and credentials API URL.
+2. Existing S3 Files filesystem ID/ARN and client security group (from
+   [opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main)
+   `memories` output, or supplied manually), ECR gateway image (digest-pinned),
+   and credentials API URL.
 3. A Secrets Manager secret containing the Postgres `DATABASE_URL`, plus the IAM
    role ARNs allowed to call lifecycle routes.
 4. Docker for the Python 3.12 x86_64 Lambda bundles.
@@ -110,6 +113,12 @@ reconciles the filesystem-wide tenant isolation policy.
 
 ```bash
 make cdk-synth
+# Option A: resolve S3 Files params from a local opensre-infra-aws checkout
+make cdk-deploy-fleet-from-infra-aws \
+  OPENSRE_INFRA_AWS_DIR=/path/to/opensre-infra-aws \
+  OPENSRE_INFRA_AWS_ENVIRONMENT=dev \
+  FLEET_CDK_ARGS='--parameters ...'
+# Option B: pass every fleet parameter explicitly
 make cdk-deploy-fleet FLEET_CDK_ARGS='--parameters ...'
 make cdk-deploy-control-plane CONTROL_PLANE_CDK_ARGS='--parameters ...'
 make cdk-deploy-public-forwarder PUBLIC_FORWARDER_CDK_ARGS='--parameters ...'

@@ -34,11 +34,19 @@ Entry points:
 | --- | --- |
 | `make cdk-synth` | Synthesize fleet, control-plane, and public-forwarder templates |
 | `make cdk-deploy-fleet` | Deploy ECS cluster, gateway SG, log group, execution role |
+| `make cdk-deploy-fleet-from-infra-aws` | Deploy fleet with S3 Files parameters from opensre-infra-aws Terraform |
 | `make cdk-deploy-control-plane` | Deploy lifecycle Lambda, schema migration, and IAM HTTP API |
 | `make cdk-deploy-public-forwarder` | Deploy public-run Lambda and bearer HTTP API |
 | `make cdk-deploy` | Deploy all three stacks in dependency order |
 | `make cdk-destroy` | Tear down all stacks in reverse order |
 | `make cdk-verify` | Run synth-level CDK tests (no AWS credentials) |
+
+Shared S3 Files storage (backing bucket + filesystem) is provisioned in
+[opensre-infra-aws](https://github.com/Tracer-Cloud/opensre-infra-aws/tree/main).
+Use a separate checkout and
+`make cdk-deploy-fleet-from-infra-aws` to resolve the `memories` Terraform output
+into fleet CDK parameters. Details and the field mapping live in
+[fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md).
 
 See [fargate_fleet_infrastructure/README.md](fargate_fleet_infrastructure/README.md),
 [api_control_plane_infrastructure/README.md](api_control_plane_infrastructure/README.md),

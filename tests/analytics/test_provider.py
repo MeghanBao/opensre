@@ -1214,6 +1214,35 @@ def test_identify_is_noop_when_opted_out(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert posted_payloads == []
 
 
+def test_base_properties_include_cli_surface_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Every PostHog event from the CLI must carry surface='cli'.
+
+    This property is the canonical filter for distinguishing CLI-agent traffic
+    from website or gateway traffic in PostHog HogQL:
+        WHERE properties.surface = 'cli'
+    """
+    monkeypatch.delenv("OPENSRE_ANALYTICS_DISABLED", raising=False)
+    monkeypatch.delenv("DO_NOT_TRACK", raising=False)
+    monkeypatch.setattr(provider, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(provider, "_ANONYMOUS_ID_PATH", tmp_path / "anonymous_id")
+    monkeypatch.setattr(provider.atexit, "register", lambda _func: None)
+    posted_payloads = _stub_httpx_client(monkeypatch)
+
+    analytics = provider.Analytics()
+    analytics.capture(Event.CLI_INVOKED, {"interactive": True})
+    analytics.capture(Event.INVESTIGATION_STARTED)
+    analytics.capture(Event.AI_GENERATION, {"$ai_model": "claude-sonnet-4-6"})
+    analytics.shutdown(flush=True)
+
+    assert len(posted_payloads) == 3
+    for payload in posted_payloads:
+        assert payload["json"]["properties"]["surface"] == "cli", (
+            f"Event {payload['json']['event']!r} is missing surface='cli' in its PostHog payload"
+        )
+
+
 def test_identify_drops_empty_set(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("OPENSRE_ANALYTICS_DISABLED", raising=False)
     monkeypatch.delenv("DO_NOT_TRACK", raising=False)

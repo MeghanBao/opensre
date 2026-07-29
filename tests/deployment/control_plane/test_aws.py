@@ -399,7 +399,7 @@ def _task_spec(image: str = IMAGE_DIGEST) -> GatewayTaskDefinitionSpec:
         access_point_arn=ACCESS_POINT_A_ARN,
         bootstrap_secret_arn=BOOTSTRAP_SECRET_ARN,
         credentials_api_url="https://credentials.example.test",
-        log_group="/opensre/gateways",
+        log_group="/opensre/organization-agents/dev",
         log_region="eu-west-2",
         tags={"organization": "org-a"},
     )
@@ -544,6 +544,48 @@ def test_secret_adapter_reads_only_metadata_and_generates_public_bearer() -> Non
     assert create["SecretString"] == credential.bearer_token
     assert create["Tags"] == [{"Key": "organization", "Value": "org-a"}]
     _validate_sdk_request("secretsmanager", "CreateSecret", create)
+
+
+def test_ensure_bootstrap_secret_creates_minimal_payload_when_missing() -> None:
+    secrets_client = MagicMock()
+    secrets_client.describe_secret.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}},
+        "DescribeSecret",
+    )
+    secrets_client.create_secret.return_value = {"ARN": BOOTSTRAP_SECRET_ARN}
+    adapter = TenantSecretsManagerAdapter(
+        secrets_client,
+        token_factory=lambda _length: "bootstrap-random-value",
+    )
+
+    arn = adapter.ensure_bootstrap_secret(
+        secret_name="opensre/tenants/org-a/credentials-api-bootstrap",
+        tags={"organization-id": "org-a"},
+    )
+
+    assert arn == BOOTSTRAP_SECRET_ARN
+    create = secrets_client.create_secret.call_args.kwargs
+    assert create["Name"] == "opensre/tenants/org-a/credentials-api-bootstrap"
+    assert json.loads(create["SecretString"]) == {
+        "credentials_api_token": "bootstrap-random-value"
+    }
+    assert create["Tags"] == [{"Key": "organization-id", "Value": "org-a"}]
+    _validate_sdk_request("secretsmanager", "CreateSecret", create)
+
+
+def test_ensure_bootstrap_secret_reuses_existing_without_overwrite() -> None:
+    secrets_client = MagicMock()
+    secrets_client.describe_secret.return_value = {"ARN": BOOTSTRAP_SECRET_ARN}
+    adapter = TenantSecretsManagerAdapter(secrets_client)
+
+    arn = adapter.ensure_bootstrap_secret(
+        secret_name="opensre/tenants/org-a/credentials-api-bootstrap",
+        tags={"organization-id": "org-a"},
+    )
+
+    assert arn == BOOTSTRAP_SECRET_ARN
+    secrets_client.create_secret.assert_not_called()
+    secrets_client.put_secret_value.assert_not_called()
 
 
 def test_secret_adapter_disables_reads_with_reversible_resource_policy() -> None:

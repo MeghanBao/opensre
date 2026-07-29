@@ -684,6 +684,10 @@ _COMPOSITE_FINGERPRINT = _build_composite_fingerprint()
 _RUNTIME_CONTEXT = detect_runtime_context()
 
 _BASE_PROPERTIES: Final[Properties] = {
+    # Canonical surface marker — present on every event from the CLI so PostHog
+    # queries can reliably exclude website/gateway traffic:
+    #   WHERE properties.surface = 'cli'
+    "surface": "cli",
     "cli_version": _cli_version(),
     "python_version": platform.python_version(),
     "os_family": platform.system().lower(),

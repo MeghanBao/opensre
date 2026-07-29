@@ -136,7 +136,7 @@ def _config() -> TenantFleetConfig:
         gateway_image=IMAGE,
         execution_role_arn="arn:aws:iam::123456789012:role/ecs-execution",
         credentials_api_url="https://credentials.example.test",
-        log_group="/opensre/gateways",
+        log_group="/opensre/organization-agents/dev",
         aws_region="eu-west-2",
         subnet_ids=("subnet-a", "subnet-b"),
         security_group_ids=("sg-gateway",),
@@ -154,7 +154,7 @@ def _factory_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "OPENSRE_GATEWAY_IMAGE": IMAGE,
         "OPENSRE_ECS_EXECUTION_ROLE_ARN": ("arn:aws:iam::123456789012:role/ecs-execution"),
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
-        "OPENSRE_GATEWAY_LOG_GROUP": "/opensre/gateways",
+        "OPENSRE_GATEWAY_LOG_GROUP": "/opensre/organization-agents/dev",
         "OPENSRE_FARGATE_SUBNET_IDS": "subnet-a,subnet-b",
         "OPENSRE_FARGATE_SECURITY_GROUP_IDS": "sg-gateway",
         "OPENSRE_S3_FILES_MOUNT_SECURITY_GROUP_IDS": "sg-s3files-mount",
@@ -184,6 +184,7 @@ def _dependencies() -> tuple[
         PUBLIC_SECRET_ARN if "public-api" in secret_id else BOOTSTRAP_SECRET_ARN
     )
     secrets.secret_exists.side_effect = lambda secret_id: "credentials-api-bootstrap" in secret_id
+    secrets.ensure_bootstrap_secret.return_value = BOOTSTRAP_SECRET_ARN
     secrets.create_public_api_credential.return_value = TenantPublicApiCredential(
         key_id="unused-by-lifecycle-test",
         secret_arn=PUBLIC_SECRET_ARN,
@@ -267,6 +268,14 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     assert task_spec.task_role_arn == TASK_ROLE_ARN
     assert task_spec.execution_role_arn != TASK_ROLE_ARN
     assert task_spec.size_profile == "SMALL"
+    secrets.ensure_bootstrap_secret.assert_called_once_with(
+        secret_name="opensre/tenants/org-a/credentials-api-bootstrap",
+        tags={
+            "managed-by": "opensre",
+            "organization-id": "org-a",
+            "enabled": "true",
+        },
+    )
     secrets.enable_secret_access.assert_called_with(
         "opensre/tenants/org-a/credentials-api-bootstrap"
     )
@@ -274,6 +283,37 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     stored_credential = next(iter(repository.credentials.values()))
     assert stored_credential.secret_arn == PUBLIC_SECRET_ARN
     assert "initial-secret" not in repr(stored_credential)
+
+
+def test_provision_creates_bootstrap_secret_when_missing() -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    secrets.secret_exists.side_effect = lambda secret_id: "public-api" in secret_id
+    secrets.ensure_bootstrap_secret.return_value = BOOTSTRAP_SECRET_ARN
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+
+    result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+
+    assert result.deployment.bootstrap_secret_arn == BOOTSTRAP_SECRET_ARN
+    secrets.ensure_bootstrap_secret.assert_called_once_with(
+        secret_name="opensre/tenants/org-a/credentials-api-bootstrap",
+        tags={
+            "managed-by": "opensre",
+            "organization-id": "org-a",
+            "enabled": "true",
+        },
+    )
+
+
+def test_provision_reuses_existing_bootstrap_secret() -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    secrets.secret_exists.side_effect = lambda _secret_id: True
+    secrets.ensure_bootstrap_secret.return_value = BOOTSTRAP_SECRET_ARN
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+
+    result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+
+    assert result.deployment.bootstrap_secret_arn == BOOTSTRAP_SECRET_ARN
+    secrets.ensure_bootstrap_secret.assert_called_once()
 
 
 def test_repeated_provision_reuses_task_service_and_public_secret() -> None:

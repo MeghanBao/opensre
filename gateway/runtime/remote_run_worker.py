@@ -306,11 +306,7 @@ class RemoteRunWorker:
                 message="run completion notification failed",
                 tags={
                     **_SENTRY_TAGS,
-                    **(
-                        {"integration": "slack"}
-                        if run.source is AgentRunSource.SLACK
-                        else {}
-                    ),
+                    **({"integration": "slack"} if run.source is AgentRunSource.SLACK else {}),
                 },
                 extras={
                     "run_id": run.id,

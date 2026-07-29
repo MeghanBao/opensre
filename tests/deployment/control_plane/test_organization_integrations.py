@@ -4,8 +4,17 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from platform.deployment_multi_tenant.lambda_control_plane.aws.ecs import FargateServiceState
+from platform.deployment_multi_tenant.lambda_control_plane.methods import (
+    method_put_organization_integration as put_integration_module,
+)
 from platform.deployment_multi_tenant.lambda_control_plane.utils.models import SizeProfile
+from platform.deployment_multi_tenant.lambda_control_plane.utils.slack_team import (
+    SlackTeamResolutionError,
+)
+from platform.deployment_multi_tenant.utils.http_lambda import ClientRequestError
 from tests.deployment.control_plane.test_lifecycle import (
     INTEGRATIONS_SECRET_ARN,
     SERVICE_ARN,
@@ -23,6 +32,19 @@ _RECORD = {
             "name": "default",
             "tags": {},
             "credentials": {"auth_token": "ghp_test"},
+        }
+    ],
+}
+
+_SLACK_RECORD = {
+    "id": "int-slack",
+    "service": "slack",
+    "status": "active",
+    "instances": [
+        {
+            "name": "default",
+            "tags": {},
+            "credentials": {"bot_token": "xoxb-test", "app_token": "xapp-test"},
         }
     ],
 }
@@ -68,6 +90,81 @@ def test_put_integration_skips_noop_write() -> None:
     assert result["changed"] is False
     secrets.put_current_secret_string.assert_not_called()
     ecs.update_service.assert_not_called()
+
+
+def test_put_slack_integration_maps_workspace_to_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+    lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+    secrets.get_current_secret_string.return_value = '{"version":2,"integrations":[]}'
+    ecs.describe_service.return_value = FargateServiceState(
+        service_arn=SERVICE_ARN,
+        task_definition_arn=TASK_DEFINITION_ARN,
+        desired_count=1,
+        running_count=1,
+        pending_count=0,
+        status="ACTIVE",
+    )
+    resolved_tokens: list[str] = []
+
+    def fake_resolve(bot_token: str) -> str:
+        resolved_tokens.append(bot_token)
+        return "T06TEST"
+
+    monkeypatch.setattr(put_integration_module, "resolve_slack_team_id", fake_resolve)
+
+    result = lifecycle.put_organization_integration("org-a", "slack", _SLACK_RECORD)
+
+    assert result["changed"] is True
+    assert resolved_tokens == ["xoxb-test"]
+    assert repository.slack_team_installs == {"T06TEST": "org-a"}
+
+
+def test_put_slack_integration_backfills_mapping_on_noop_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+    lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+    secrets.get_current_secret_string.return_value = json.dumps(
+        {"version": 2, "integrations": [_SLACK_RECORD]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    monkeypatch.setattr(
+        put_integration_module,
+        "resolve_slack_team_id",
+        lambda _token: "T06TEST",
+    )
+
+    result = lifecycle.put_organization_integration("org-a", "slack", _SLACK_RECORD)
+
+    assert result["changed"] is False
+    secrets.put_current_secret_string.assert_not_called()
+    assert repository.slack_team_installs == {"T06TEST": "org-a"}
+
+
+def test_put_slack_integration_rejects_invalid_bot_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+    lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+
+    def fake_resolve(_token: str) -> str:
+        raise SlackTeamResolutionError("invalid_slack_bot_token")
+
+    monkeypatch.setattr(put_integration_module, "resolve_slack_team_id", fake_resolve)
+
+    with pytest.raises(ClientRequestError) as caught:
+        lifecycle.put_organization_integration("org-a", "slack", _SLACK_RECORD)
+
+    assert caught.value.status_code == 400
+    assert caught.value.code == "invalid_slack_bot_token"
+    secrets.put_current_secret_string.assert_not_called()
+    assert repository.slack_team_installs == {}
 
 
 def test_delete_integration_removes_service() -> None:

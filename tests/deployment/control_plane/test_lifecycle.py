@@ -71,6 +71,7 @@ class MemoryLifecycleRepository:
     def __init__(self) -> None:
         self.deployments: dict[str, TenantDeployment] = {}
         self.credentials: dict[str, TenantApiCredential] = {}
+        self.slack_team_installs: dict[str, str] = {}
 
     def upsert_tenant_deployment(self, deployment: TenantDeployment) -> TenantDeployment:
         self.deployments[deployment.organization_id] = deployment
@@ -125,6 +126,17 @@ class MemoryLifecycleRepository:
             and deployment.organization_id != exclude_organization_id
             for deployment in self.deployments.values()
         )
+
+    def upsert_slack_team_install(
+        self,
+        *,
+        team_id: str,
+        organization_id: str,
+    ) -> None:
+        self.slack_team_installs[team_id] = organization_id
+
+    def fetch_organization_id_by_slack_team(self, team_id: str) -> str | None:
+        return self.slack_team_installs.get(team_id)
 
     @contextmanager
     def with_filesystem_isolation_lock(self) -> Iterator[None]:
@@ -350,8 +362,7 @@ def test_provision_migrates_legacy_undated_service_name() -> None:
         None,  # dated canonical miss
         FargateServiceState(  # legacy hit
             service_arn=(
-                "arn:aws:ecs:eu-west-2:123456789012:service/opensre/"
-                "opensre-org-a-gateway"
+                "arn:aws:ecs:eu-west-2:123456789012:service/opensre/opensre-org-a-gateway"
             ),
             task_definition_arn=TASK_DEFINITION_ARN,
             desired_count=1,
@@ -361,8 +372,7 @@ def test_provision_migrates_legacy_undated_service_name() -> None:
         ),
     ]
     ecs.create_service.return_value = (
-        "arn:aws:ecs:eu-west-2:123456789012:service/opensre/"
-        "260724-opensre-org-a-gateway"
+        "arn:aws:ecs:eu-west-2:123456789012:service/opensre/260724-opensre-org-a-gateway"
     )
 
     result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
@@ -378,7 +388,7 @@ def test_provision_migrates_legacy_undated_service_name() -> None:
 
 def test_repeated_provision_reuses_task_service_and_public_secret() -> None:
     lifecycle, _, s3_files, iam, secrets, ecs = _provisioned()
-    ecs.task_definition_uses_image.return_value = True
+    ecs.task_definition_matches_gateway_contract.return_value = True
     ecs.describe_service.return_value = FargateServiceState(
         service_arn=SERVICE_ARN,
         task_definition_arn=TASK_DEFINITION_ARN,
@@ -420,7 +430,7 @@ def test_active_organization_cap_blocks_new_compute_but_not_reconciliation() -> 
         clock=lambda: NOW,
     )
     lifecycle.provision_gateway("org-a")
-    ecs.task_definition_uses_image.return_value = True
+    ecs.task_definition_matches_gateway_contract.return_value = True
     ecs.describe_service.return_value = FargateServiceState(
         service_arn=SERVICE_ARN,
         task_definition_arn=TASK_DEFINITION_ARN,
@@ -490,7 +500,7 @@ def test_size_change_registers_new_revision_and_updates_service() -> None:
 
 def test_image_change_registers_new_revision_and_updates_service() -> None:
     lifecycle, _, _, _, secrets, ecs = _provisioned()
-    ecs.task_definition_uses_image.return_value = False
+    ecs.task_definition_matches_gateway_contract.return_value = False
     ecs.register_gateway_task_definition.return_value = TASK_DEFINITION_ARN.replace(":1", ":2")
     ecs.describe_service.return_value = FargateServiceState(
         service_arn=SERVICE_ARN,

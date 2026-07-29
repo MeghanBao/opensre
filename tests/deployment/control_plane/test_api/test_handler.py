@@ -58,6 +58,7 @@ class _Runs:
     def __init__(self) -> None:
         self.enqueued: list[dict[str, Any]] = []
         self.runs: dict[str, AgentRun] = {}
+        self.slack_teams: dict[str, str] = {"T123": "org_123"}
 
     def enqueue_agent_run(self, **kwargs: Any) -> AgentRun:
         self.enqueued.append(kwargs)
@@ -68,6 +69,7 @@ class _Runs:
             source=kwargs["source"],
             prompt=kwargs["prompt"],
             source_event_id=kwargs["source_event_id"],
+            source_context=kwargs.get("source_context"),
             status=AgentRunStatus.QUEUED,
             attempt_count=0,
             created_at=now,
@@ -78,6 +80,9 @@ class _Runs:
 
     def fetch_agent_run_by_id(self, run_id: str) -> AgentRun | None:
         return self.runs.get(run_id)
+
+    def fetch_organization_id_by_slack_team(self, team_id: str) -> str | None:
+        return self.slack_teams.get(team_id)
 
 
 @dataclass(frozen=True)
@@ -260,6 +265,104 @@ def test_lifecycle_routes_delegate_to_operation_methods() -> None:
 )
 def test_lifecycle_routes_reject_unsupported_methods(method: str, path: str) -> None:
     response = _control_plane_api().handle(_event(method, path, iam=True))
+
+    assert response["statusCode"] == 405
+    assert _payload(response) == {"error": "method_not_allowed"}
+
+
+def test_slack_url_verification_returns_plain_challenge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SLACK_SIGNING_SECRET", raising=False)
+    api, _ = _public_forwarder_app()
+    challenge = "3eZbrw1aBm2rZgRNFdxV2595E9CY3gmdALWMmHkvFXO7tYXAYM8P"
+
+    response = api.handle(
+        _event(
+            "POST",
+            "/v1/slack/events",
+            body={
+                "token": "unused",
+                "challenge": challenge,
+                "type": "url_verification",
+            },
+        )
+    )
+
+    assert response["statusCode"] == 200
+    assert response["headers"]["content-type"].startswith("text/plain")
+    assert response["body"] == challenge
+
+
+def test_slack_event_callback_is_acknowledged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SLACK_SIGNING_SECRET", raising=False)
+    api, runs = _public_forwarder_app()
+
+    # No channel on the event: acknowledged but never enqueued.
+    response = api.handle(
+        _event(
+            "POST",
+            "/v1/slack/events",
+            body={
+                "type": "event_callback",
+                "team_id": "T123",
+                "event_id": "Ev123",
+                "event": {"type": "app_mention", "text": "hello"},
+            },
+        )
+    )
+
+    assert response["statusCode"] == 200
+    assert _payload(response) == {"ok": True}
+    assert runs.enqueued == []
+
+
+def test_slack_event_callback_enqueues_run_for_mapped_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SLACK_SIGNING_SECRET", raising=False)
+    api, runs = _public_forwarder_app()
+
+    response = api.handle(
+        _event(
+            "POST",
+            "/v1/slack/events",
+            body={
+                "type": "event_callback",
+                "team_id": "T123",
+                "event_id": "Ev123",
+                "event": {
+                    "type": "app_mention",
+                    "user": "U456",
+                    "ts": "1785343490.812049",
+                    "text": "<@U789> investigate the outage",
+                    "channel": "C123",
+                },
+            },
+        )
+    )
+
+    assert response["statusCode"] == 200
+    assert runs.enqueued == [
+        {
+            "organization_id": "org_123",
+            "source": AgentRunSource.SLACK,
+            "prompt": "investigate the outage",
+            "source_event_id": "Ev123",
+            "source_context": {
+                "channel": "C123",
+                "thread_ts": "1785343490.812049",
+                "user": "U456",
+            },
+        }
+    ]
+
+
+def test_slack_events_rejects_unsupported_methods() -> None:
+    api, _ = _public_forwarder_app()
+    response = api.handle(_event("GET", "/v1/slack/events"))
 
     assert response["statusCode"] == 405
     assert _payload(response) == {"error": "method_not_allowed"}

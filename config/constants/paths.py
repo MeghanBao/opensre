@@ -146,7 +146,7 @@ def integrations_store_path() -> Path:
     """Integrations store path (shared by every member of the org).
 
     Gateway tasks may override this to a private ephemeral path such as
-    ``/run/opensre/integrations.json`` so secrets never land on the memories
+    ``/tmp/opensre/integrations.json`` so secrets never land on the memories
     mount.
     """
     from config.constants.credentials import INTEGRATIONS_STORE_PATH_ENV

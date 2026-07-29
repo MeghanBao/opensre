@@ -470,7 +470,7 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": BOOTSTRAP_SECRET_ARN,
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
         "OPENSRE_INTEGRATIONS_SECRET_ARN": INTEGRATIONS_SECRET_ARN,
-        "OPENSRE_INTEGRATIONS_STORE_PATH": "/run/opensre/integrations.json",
+        "OPENSRE_INTEGRATIONS_STORE_PATH": "/tmp/opensre/integrations.json",
         "OPENSRE_SIZE_PROFILE": "SMALL",
         "OPENSRE_WORKSPACE": "/workspace/files",
         "ORGANIZATION_ID": "org-a",
@@ -491,17 +491,51 @@ def test_task_definition_image_match_checks_gateway_container() -> None:
         "taskDefinition": {
             "containerDefinitions": [
                 {"name": "sidecar", "image": "example.invalid/sidecar:latest"},
-                {"name": "gateway", "image": image},
+                {
+                    "name": "gateway",
+                    "image": image,
+                    "environment": [
+                        {
+                            "name": "OPENSRE_INTEGRATIONS_STORE_PATH",
+                            "value": "/tmp/opensre/integrations.json",
+                        }
+                    ],
+                },
             ]
         }
     }
     adapter = TenantEcsAdapter(ecs)
 
-    assert adapter.task_definition_uses_image(task_definition_arn, image)
-    assert not adapter.task_definition_uses_image(
+    assert adapter.task_definition_matches_gateway_contract(task_definition_arn, image)
+    assert not adapter.task_definition_matches_gateway_contract(
         task_definition_arn,
         "123456789012.dkr.ecr.eu-west-2.amazonaws.com/opensre@sha256:" + ("b" * 64),
     )
+
+
+def test_task_definition_with_stale_store_path_does_not_match_contract() -> None:
+    image = _task_spec().image
+    task_definition_arn = "arn:aws:ecs:eu-west-2:123456789012:task-definition/opensre-org-a:1"
+    ecs = MagicMock()
+    ecs.describe_task_definition.return_value = {
+        "taskDefinition": {
+            "containerDefinitions": [
+                {
+                    "name": "gateway",
+                    "image": image,
+                    "environment": [
+                        {
+                            "name": "OPENSRE_INTEGRATIONS_STORE_PATH",
+                            "value": "/run/opensre/integrations.json",
+                        }
+                    ],
+                },
+            ]
+        }
+    }
+    adapter = TenantEcsAdapter(ecs)
+
+    assert not adapter.task_definition_matches_gateway_contract(task_definition_arn, image)
 
 
 def test_creates_and_updates_private_fargate_service() -> None:

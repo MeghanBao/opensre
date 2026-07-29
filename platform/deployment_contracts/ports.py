@@ -16,6 +16,7 @@ class AgentRunRepository(Protocol):
         source: AgentRunSource,
         prompt: str,
         source_event_id: str | None = None,
+        source_context: dict[str, Any] | None = None,
     ) -> AgentRun: ...
 
     def fetch_agent_run_by_id(self, run_id: str) -> AgentRun | None: ...

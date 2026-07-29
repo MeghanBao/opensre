@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import types
 from datetime import UTC, datetime, timedelta
@@ -103,6 +104,7 @@ def _run_row(
     *,
     organization_id: str = "org_123",
     status: AgentRunStatus = AgentRunStatus.QUEUED,
+    source_context: str | None = None,
 ) -> tuple[Any, ...]:
     now = datetime.now(UTC)
     return (
@@ -119,6 +121,7 @@ def _run_row(
         0,
         now,
         now,
+        source_context,
     )
 
 
@@ -157,8 +160,47 @@ def test_enqueue_agent_run_is_idempotent_for_stable_source_event(
         "event_123",
         "Investigate",
         AgentRunStatus.QUEUED.value,
+        None,
     )
     assert run.id == "run_123"
+
+
+def test_enqueue_agent_run_persists_source_context_and_maps_it_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, database = _install_fake_psycopg2(monkeypatch)
+    store = ControlPlaneDbClient("postgresql://example/db")
+    context = {"channel": "C1", "thread_ts": "171.1", "user": "U1"}
+    database.rows.append(_run_row(source_context=json.dumps(context)))
+
+    run = store.enqueue_agent_run(
+        organization_id="org_123",
+        source=AgentRunSource.SLACK,
+        source_event_id="event_123",
+        prompt="Investigate",
+        source_context=context,
+    )
+
+    _, params = database.queries[-1]
+    assert params[-1] == json.dumps(context)
+    assert run.source_context == context
+
+
+def test_slack_team_install_upsert_and_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, database = _install_fake_psycopg2(monkeypatch)
+    store = ControlPlaneDbClient("postgresql://example/db")
+
+    store.upsert_slack_team_install(team_id="T06TEST", organization_id="org_123")
+    upsert_sql, upsert_params = database.queries[-1]
+    assert "slack_team_installs" in upsert_sql
+    assert "ON CONFLICT (team_id) DO UPDATE" in upsert_sql
+    assert upsert_params == ("T06TEST", "org_123")
+
+    database.rows.append(("org_123",))
+    assert store.fetch_organization_id_by_slack_team("T06TEST") == "org_123"
+    assert store.fetch_organization_id_by_slack_team("T_UNKNOWN") is None
 
 
 def test_claim_oldest_available_agent_run_is_tenant_scoped_lease_based_and_skip_locked(

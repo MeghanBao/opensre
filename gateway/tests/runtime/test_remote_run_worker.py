@@ -120,6 +120,80 @@ def test_api_run_stays_queued_while_chat_owns_shared_capacity() -> None:
     ]
 
 
+def test_slack_run_keys_session_by_conversation_and_notifies_completion() -> None:
+    now = datetime.now(UTC)
+    repository = _Repository()
+    repository.queued = AgentRun(
+        id="run-slack-1",
+        organization_id="org-a",
+        source=AgentRunSource.SLACK,
+        prompt="investigate",
+        status=AgentRunStatus.QUEUED,
+        attempt_count=0,
+        created_at=now,
+        updated_at=now,
+        source_event_id="Ev123",
+        source_context={"channel": "C1", "thread_ts": "171.1", "user": "U1"},
+    )
+    notified: list[tuple[str, str]] = []
+
+    class _SlackResolver:
+        def resolve(self, *, user_id: str, chat_id: str) -> Any:
+            assert (user_id, chat_id) == ("org-a", "slack:C1:171.1")
+            return type("Session", (), {"session_id": "session-slack"})()
+
+    def handler(
+        text: str,
+        _session: object,
+        sink: Any,
+        _logger: logging.Logger,
+    ) -> None:
+        assert text == "investigate"
+        sink.finalize("all clear")
+
+    worker = RemoteRunWorker(
+        organization_id="org-a",
+        repository=repository,  # type: ignore[arg-type]
+        handler=handler,  # type: ignore[arg-type]
+        session_resolver=_SlackResolver(),  # type: ignore[arg-type]
+        gate=TurnConcurrencyGate(1),
+        logger=logging.getLogger("test"),
+        poll_interval_seconds=0.01,
+        completion_notifier=lambda run, text: notified.append((run.id, text)),
+    )
+    worker.start()
+    assert repository.done.wait(1)
+    assert worker.stop(timeout=1)
+
+    assert notified == [("run-slack-1", "all clear")]
+
+
+def test_notifier_failure_does_not_fail_the_persisted_run() -> None:
+    repository = _Repository()
+
+    def handler(*_args: object) -> None:
+        _args[2].finalize("done")  # type: ignore[attr-defined]
+
+    def broken_notifier(_run: AgentRun, _text: str) -> None:
+        raise RuntimeError("slack down")
+
+    worker = RemoteRunWorker(
+        organization_id="org-a",
+        repository=repository,  # type: ignore[arg-type]
+        handler=handler,  # type: ignore[arg-type]
+        session_resolver=_Resolver(),  # type: ignore[arg-type]
+        gate=TurnConcurrencyGate(1),
+        logger=logging.getLogger("test"),
+        poll_interval_seconds=0.01,
+        completion_notifier=broken_notifier,
+    )
+    worker.start()
+    assert repository.done.wait(1)
+    assert worker.stop(timeout=1)
+
+    assert repository.finished[0]["status"] is AgentRunStatus.SUCCEEDED
+
+
 def test_long_run_renews_lease_and_failure_is_generic() -> None:
     repository = _Repository()
 

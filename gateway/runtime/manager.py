@@ -264,12 +264,15 @@ class GatewayManager:
                 gate: TurnConcurrencyGate,
                 log: logging.Logger,
             ) -> RemoteRunWorker:
+                from gateway.slack.run_reply import build_slack_run_completion_notifier
+
                 return build_remote_run_worker(
                     organization_id=org,
                     database_url=dsn,
                     handler=callback,
                     gate=gate,
                     logger=log,
+                    completion_notifier=build_slack_run_completion_notifier(log),
                 )
 
         try:

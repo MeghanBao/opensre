@@ -72,6 +72,7 @@ class AgentRun:
     created_at: datetime
     updated_at: datetime
     source_event_id: str | None = None
+    source_context: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error_code: str | None = None
     claimed_by: str | None = None

@@ -5,17 +5,22 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 
 from gateway.runtime.concurrency import TurnConcurrencyGate
 from gateway.runtime.sink_protocol import GatewayAgentCallback
 from gateway.storage import SessionResolver
 from gateway.storage.session.binding_store import open_binding_store
-from platform.deployment_contracts.models import AgentRun, AgentRunStatus
+from platform.deployment_contracts.models import AgentRun, AgentRunSource, AgentRunStatus
 from platform.deployment_contracts.ports import AgentRunRepository
 
 _GENERIC_FAILURE = "The remote agent run failed."
+
+# Called with each finished run and its final (non-sensitive) text so a
+# transport (e.g. Slack) can deliver the reply; implementations filter by
+# ``run.source`` themselves.
+RunCompletionNotifier = Callable[[AgentRun, str], None]
 
 
 class DatabaseGatewaySink:
@@ -154,6 +159,7 @@ class RemoteRunWorker:
         worker_id: str | None = None,
         poll_interval_seconds: float = 1.0,
         lease_duration: timedelta = timedelta(minutes=2),
+        completion_notifier: RunCompletionNotifier | None = None,
     ) -> None:
         if not organization_id.strip():
             raise ValueError("organization_id must not be blank")
@@ -170,6 +176,7 @@ class RemoteRunWorker:
         self._worker_id = worker_id or f"gateway-{uuid.uuid4()}"
         self._poll_interval_seconds = poll_interval_seconds
         self._lease_duration = lease_duration
+        self._completion_notifier = completion_notifier
         self._stop = threading.Event()
         self._poller = threading.Thread(
             target=self._poll,
@@ -243,11 +250,12 @@ class RemoteRunWorker:
         try:
             session = self._session_resolver.resolve(
                 user_id=run.organization_id,
-                chat_id=run.id,
+                chat_id=_conversation_chat_id(run),
             )
             self._handler(run.prompt, session, sink, self._logger)
             if not sink.persist_success(session_id=session.session_id):
                 self._logger.warning("remote run completion lost its lease")
+            self._notify_completion(run, sink.final_text)
         except Exception as exc:
             self._logger.warning("remote run failed (%s)", type(exc).__name__)
             try:
@@ -258,12 +266,36 @@ class RemoteRunWorker:
                     "remote run failure persistence failed (%s)",
                     type(persistence_exc).__name__,
                 )
+            self._notify_completion(run, _GENERIC_FAILURE)
         finally:
             renewer.stop()
             self._gate.release()
             current = threading.current_thread()
             with self._active_lock:
                 self._active.discard(current)
+
+    def _notify_completion(self, run: AgentRun, final_text: str) -> None:
+        """Deliver the reply best-effort; the run result is already persisted."""
+        if self._completion_notifier is None:
+            return
+        try:
+            self._completion_notifier(run, final_text)
+        except Exception as exc:
+            self._logger.warning(
+                "run completion notification failed (%s)",
+                type(exc).__name__,
+            )
+
+
+def _conversation_chat_id(run: AgentRun) -> str:
+    """Key Slack runs by conversation so one thread keeps one session."""
+    if run.source is AgentRunSource.SLACK and run.source_context:
+        channel = run.source_context.get("channel")
+        if isinstance(channel, str) and channel:
+            thread_ts = run.source_context.get("thread_ts")
+            thread = thread_ts if isinstance(thread_ts, str) and thread_ts else "-"
+            return f"slack:{channel}:{thread}"
+    return run.id
 
 
 def build_remote_run_worker(
@@ -273,6 +305,7 @@ def build_remote_run_worker(
     handler: GatewayAgentCallback,
     gate: TurnConcurrencyGate,
     logger: logging.Logger,
+    completion_notifier: RunCompletionNotifier | None = None,
 ) -> RemoteRunWorker:
     """Compose the production Neon repository and API session resolver."""
     # Private opensre-infra-aws submodule (optional for public/community CI).
@@ -292,11 +325,13 @@ def build_remote_run_worker(
         session_resolver=resolver,
         gate=gate,
         logger=logger,
+        completion_notifier=completion_notifier,
     )
 
 
 __all__ = [
     "DatabaseGatewaySink",
     "RemoteRunWorker",
+    "RunCompletionNotifier",
     "build_remote_run_worker",
 ]

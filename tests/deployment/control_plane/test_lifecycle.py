@@ -260,6 +260,8 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     assert result.deployment.integrations_secret_arn == INTEGRATIONS_SECRET_ARN
     assert result.deployment.task_definition_arn == TASK_DEFINITION_ARN
     assert result.deployment.service_arn == SERVICE_ARN
+    created_service = ecs.create_service.call_args.args[0]
+    assert created_service.service_name == "260724-opensre-org-a-gateway"
 
     s3_files.ensure_mount_targets.assert_called_once_with(
         file_system_id="fs-123",
@@ -339,6 +341,39 @@ def test_provision_reuses_existing_bootstrap_secret() -> None:
 
     assert result.deployment.bootstrap_secret_arn == BOOTSTRAP_SECRET_ARN
     secrets.ensure_bootstrap_secret.assert_called_once()
+
+
+def test_provision_migrates_legacy_undated_service_name() -> None:
+    repository, s3_files, iam, secrets, ecs = _dependencies()
+    lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
+    ecs.describe_service.side_effect = [
+        None,  # dated canonical miss
+        FargateServiceState(  # legacy hit
+            service_arn=(
+                "arn:aws:ecs:eu-west-2:123456789012:service/opensre/"
+                "opensre-org-a-gateway"
+            ),
+            task_definition_arn=TASK_DEFINITION_ARN,
+            desired_count=1,
+            running_count=1,
+            pending_count=0,
+            status="ACTIVE",
+        ),
+    ]
+    ecs.create_service.return_value = (
+        "arn:aws:ecs:eu-west-2:123456789012:service/opensre/"
+        "260724-opensre-org-a-gateway"
+    )
+
+    result = lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+
+    created = ecs.create_service.call_args.args[0]
+    assert created.service_name == "260724-opensre-org-a-gateway"
+    ecs.delete_service.assert_called_once_with(
+        cluster="arn:aws:ecs:eu-west-2:123456789012:cluster/opensre",
+        service_name="opensre-org-a-gateway",
+    )
+    assert result.deployment.service_arn.endswith("260724-opensre-org-a-gateway")
 
 
 def test_repeated_provision_reuses_task_service_and_public_secret() -> None:

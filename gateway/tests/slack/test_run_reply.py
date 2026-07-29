@@ -5,8 +5,15 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import MagicMock
 
-from gateway.slack.run_reply import SlackRunCompletionNotifier
+import pytest
+
+from gateway.slack.run_reply import (
+    SlackRunCompletionNotifier,
+    SlackRunReplyDeliveryError,
+    build_slack_run_completion_notifier,
+)
 from platform.deployment_contracts.models import (
     AgentRun,
     AgentRunSource,
@@ -15,8 +22,9 @@ from platform.deployment_contracts.models import (
 
 
 class _RecordingClient:
-    def __init__(self) -> None:
+    def __init__(self, *, post_result: str | None = "1785343999.000001") -> None:
         self.posted: list[dict[str, Any]] = []
+        self._post_result = post_result
 
     def post_message(
         self,
@@ -28,7 +36,7 @@ class _RecordingClient:
     ) -> str | None:
         _ = blocks
         self.posted.append({"channel": channel, "text": text, "thread_ts": thread_ts})
-        return "1785343999.000001"
+        return self._post_result
 
 
 def _run(
@@ -68,15 +76,62 @@ def test_slack_run_reply_is_posted_to_originating_thread() -> None:
     assert client.posted == [{"channel": "C1", "text": "all clear", "thread_ts": "171.1"}]
 
 
-def test_non_slack_runs_and_missing_channel_are_ignored() -> None:
+def test_non_slack_runs_are_ignored_and_missing_channel_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = _RecordingClient()
     notifier = _notifier(client)
+    report = MagicMock()
+    monkeypatch.setattr("gateway.slack.run_reply.report_exception", report)
 
     notifier(_run(source=AgentRunSource.API), "all clear")
     notifier(_run(source_context=None), "all clear")
     notifier(_run(source_context={"thread_ts": "171.1"}), "all clear")
 
     assert client.posted == []
+    assert report.call_count == 2
+    assert all(
+        isinstance(call.args[0], SlackRunReplyDeliveryError) for call in report.call_args_list
+    )
+
+
+def test_post_message_failure_is_reported_to_sentry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingClient(post_result=None)
+    report = MagicMock()
+    monkeypatch.setattr("gateway.slack.run_reply.report_exception", report)
+
+    _notifier(client)(_run(source_context={"channel": "C1", "thread_ts": "171.1"}), "all clear")
+
+    assert client.posted == [{"channel": "C1", "text": "all clear", "thread_ts": "171.1"}]
+    report.assert_called_once()
+    assert isinstance(report.call_args.args[0], SlackRunReplyDeliveryError)
+    assert report.call_args.kwargs["extras"]["channel"] == "C1"
+    assert report.call_args.kwargs["extras"]["run_id"] == "run-1"
+
+
+def test_build_notifier_reports_when_bot_token_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = MagicMock()
+    monkeypatch.setattr("gateway.slack.run_reply.report_exception", report)
+    monkeypatch.setattr(
+        "gateway.slack.run_reply.choose_bot_token",
+        MagicMock(side_effect=RuntimeError("missing token")),
+    )
+    monkeypatch.setattr(
+        "gateway.slack.run_reply.load_slack_credentials",
+        MagicMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "gateway.slack.run_reply.SlackGatewayEnv",
+        MagicMock(return_value=MagicMock()),
+    )
+
+    assert build_slack_run_completion_notifier(logging.getLogger("test")) is None
+    report.assert_called_once()
+    assert report.call_args.kwargs["severity"] == "warning"
 
 
 def test_empty_result_text_falls_back_to_placeholder() -> None:

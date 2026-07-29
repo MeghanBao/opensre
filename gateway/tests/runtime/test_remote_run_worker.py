@@ -9,6 +9,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -168,8 +169,12 @@ def test_slack_run_keys_session_by_conversation_and_notifies_completion() -> Non
     assert notified == [("run-slack-1", "all clear")]
 
 
-def test_notifier_failure_does_not_fail_the_persisted_run() -> None:
+def test_notifier_failure_does_not_fail_the_persisted_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repository = _Repository()
+    report = MagicMock()
+    monkeypatch.setattr("gateway.runtime.remote_run_worker.report_exception", report)
 
     def handler(*_args: object) -> None:
         _args[2].finalize("done")  # type: ignore[attr-defined]
@@ -192,6 +197,54 @@ def test_notifier_failure_does_not_fail_the_persisted_run() -> None:
     assert worker.stop(timeout=1)
 
     assert repository.finished[0]["status"] is AgentRunStatus.SUCCEEDED
+    report.assert_called_once()
+    assert isinstance(report.call_args.args[0], RuntimeError)
+    assert report.call_args.kwargs["extras"]["run_id"] == "run-1"
+
+
+def test_missing_notifier_for_slack_run_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _Repository()
+    repository.queued = AgentRun(
+        id="run-slack-2",
+        organization_id="org-a",
+        source=AgentRunSource.SLACK,
+        prompt="investigate",
+        status=AgentRunStatus.QUEUED,
+        attempt_count=0,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        source_context={"channel": "C1", "thread_ts": "171.1"},
+    )
+    report = MagicMock()
+    monkeypatch.setattr("gateway.runtime.remote_run_worker.report_exception", report)
+
+    def handler(*_args: object) -> None:
+        _args[2].finalize("done")  # type: ignore[attr-defined]
+
+    class _SlackResolver:
+        def resolve(self, *, user_id: str, chat_id: str) -> Any:
+            _ = (user_id, chat_id)
+            return type("Session", (), {"session_id": "session-slack"})()
+
+    worker = RemoteRunWorker(
+        organization_id="org-a",
+        repository=repository,  # type: ignore[arg-type]
+        handler=handler,  # type: ignore[arg-type]
+        session_resolver=_SlackResolver(),  # type: ignore[arg-type]
+        gate=TurnConcurrencyGate(1),
+        logger=logging.getLogger("test"),
+        poll_interval_seconds=0.01,
+        completion_notifier=None,
+    )
+    worker.start()
+    assert repository.done.wait(1)
+    assert worker.stop(timeout=1)
+
+    assert repository.finished[0]["status"] is AgentRunStatus.SUCCEEDED
+    report.assert_called_once()
+    assert "completion notifier unavailable" in report.call_args.kwargs["message"]
 
 
 def test_long_run_renews_lease_and_failure_is_generic() -> None:

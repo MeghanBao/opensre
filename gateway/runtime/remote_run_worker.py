@@ -14,8 +14,13 @@ from gateway.storage import SessionResolver
 from gateway.storage.session.binding_store import open_binding_store
 from platform.deployment_contracts.models import AgentRun, AgentRunSource, AgentRunStatus
 from platform.deployment_contracts.ports import AgentRunRepository
+from platform.observability.errors.boundary import report_exception
 
 _GENERIC_FAILURE = "The remote agent run failed."
+_SENTRY_TAGS = {
+    "surface": "gateway",
+    "component": "gateway.runtime.remote_run_worker",
+}
 
 # Called with each finished run and its final (non-sensitive) text so a
 # transport (e.g. Slack) can deliver the reply; implementations filter by
@@ -277,13 +282,41 @@ class RemoteRunWorker:
     def _notify_completion(self, run: AgentRun, final_text: str) -> None:
         """Deliver the reply best-effort; the run result is already persisted."""
         if self._completion_notifier is None:
+            if run.source is AgentRunSource.SLACK:
+                report_exception(
+                    RuntimeError(
+                        f"Slack run {run.id} finished but no completion notifier is configured"
+                    ),
+                    logger=self._logger,
+                    message="Slack run reply skipped: completion notifier unavailable",
+                    tags={**_SENTRY_TAGS, "integration": "slack"},
+                    extras={
+                        "run_id": run.id,
+                        "organization_id": run.organization_id,
+                    },
+                    include_traceback=False,
+                )
             return
         try:
             self._completion_notifier(run, final_text)
         except Exception as exc:
-            self._logger.warning(
-                "run completion notification failed (%s)",
-                type(exc).__name__,
+            report_exception(
+                exc,
+                logger=self._logger,
+                message="run completion notification failed",
+                tags={
+                    **_SENTRY_TAGS,
+                    **(
+                        {"integration": "slack"}
+                        if run.source is AgentRunSource.SLACK
+                        else {}
+                    ),
+                },
+                extras={
+                    "run_id": run.id,
+                    "organization_id": run.organization_id,
+                    "run_source": run.source.value,
+                },
             )
 
 

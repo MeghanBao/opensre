@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 import boto3
@@ -481,6 +482,67 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
     assert "api_key" not in task_json.lower()
     assert "password" not in task_json.lower()
     _validate_sdk_request("ecs", "RegisterTaskDefinition", request)
+
+
+def test_registers_task_definition_with_injected_slack_bot_token_secret() -> None:
+    slack_secret_arn = "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/tenants/org-a/slack-bot-token-AbCdEf"
+    ecs = MagicMock()
+    ecs.register_task_definition.return_value = {
+        "taskDefinition": {
+            "taskDefinitionArn": (
+                "arn:aws:ecs:eu-west-2:123456789012:task-definition/opensre-org-a:2"
+            )
+        }
+    }
+    spec = replace(_task_spec(), slack_bot_token_secret_arn=slack_secret_arn)
+
+    TenantEcsAdapter(ecs).register_gateway_task_definition(spec)
+
+    request = ecs.register_task_definition.call_args.kwargs
+    container = request["containerDefinitions"][0]
+    assert container["secrets"] == [{"name": "SLACK_BOT_TOKEN", "valueFrom": slack_secret_arn}]
+    # Only the secret's ARN appears in task metadata — never a token value.
+    assert "xoxb" not in json.dumps(request)
+    _validate_sdk_request("ecs", "RegisterTaskDefinition", request)
+
+
+def test_task_definition_slack_secret_mismatch_does_not_match_contract() -> None:
+    image = _task_spec().image
+    slack_secret_arn = "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/tenants/org-a/slack-bot-token-AbCdEf"
+    task_definition_arn = "arn:aws:ecs:eu-west-2:123456789012:task-definition/opensre-org-a:1"
+    ecs = MagicMock()
+    ecs.describe_task_definition.return_value = {
+        "taskDefinition": {
+            "containerDefinitions": [
+                {
+                    "name": "gateway",
+                    "image": image,
+                    "environment": [
+                        {
+                            "name": "OPENSRE_INTEGRATIONS_STORE_PATH",
+                            "value": "/tmp/opensre/integrations.json",
+                        }
+                    ],
+                    "secrets": [{"name": "SLACK_BOT_TOKEN", "valueFrom": slack_secret_arn}],
+                }
+            ]
+        }
+    }
+    adapter = TenantEcsAdapter(ecs)
+
+    assert adapter.task_definition_matches_gateway_contract(
+        task_definition_arn,
+        image,
+        slack_bot_token_secret_arn=slack_secret_arn,
+    )
+    # A task definition still lacking (or holding a different) injected secret
+    # must be re-registered.
+    assert not adapter.task_definition_matches_gateway_contract(task_definition_arn, image)
+    assert not adapter.task_definition_matches_gateway_contract(
+        task_definition_arn,
+        image,
+        slack_bot_token_secret_arn=slack_secret_arn.replace("org-a", "org-b"),
+    )
 
 
 def test_task_definition_image_match_checks_gateway_container() -> None:

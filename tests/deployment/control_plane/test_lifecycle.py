@@ -212,6 +212,8 @@ def _dependencies() -> tuple[
     )
     secrets.ensure_bootstrap_secret.return_value = BOOTSTRAP_SECRET_ARN
     secrets.ensure_integrations_secret.return_value = INTEGRATIONS_SECRET_ARN
+    # No tenant Slack bot token secret unless a test configures one.
+    secrets.find_secret_arn.return_value = None
     secrets.create_public_api_credential.return_value = TenantPublicApiCredential(
         key_id="unused-by-lifecycle-test",
         secret_arn=PUBLIC_SECRET_ARN,

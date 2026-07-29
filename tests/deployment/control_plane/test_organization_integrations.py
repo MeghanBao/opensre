@@ -120,6 +120,14 @@ def test_put_slack_integration_maps_workspace_to_organization(
     assert result["changed"] is True
     assert resolved_tokens == ["xoxb-test"]
     assert repository.slack_team_installs == {"T06TEST": "org-a"}
+    # The bot token goes to the dedicated secret, never the integrations vault.
+    secret_write = secrets.put_slack_bot_token_secret.call_args.kwargs
+    assert secret_write["bot_token"] == "xoxb-test"
+    assert "slack-bot-token" in secret_write["secret_name"]
+    vault_write = secrets.put_current_secret_string.call_args.args[1]
+    assert "xoxb-test" not in vault_write
+    assert "xapp-test" in vault_write
+    ecs.update_service.assert_called()
 
 
 def test_put_slack_integration_backfills_mapping_on_noop_write(
@@ -128,10 +136,24 @@ def test_put_slack_integration_backfills_mapping_on_noop_write(
     repository, s3_files, iam, secrets, ecs = _dependencies()
     lifecycle = _lifecycle(repository, s3_files, iam, secrets, ecs)
     lifecycle.provision_gateway("org-a", SizeProfile.SMALL)
+    # The vault already holds the stripped record: bot tokens live only in the
+    # dedicated secret, so a re-PUT of the same payload is a vault noop.
+    stripped = {
+        **_SLACK_RECORD,
+        "instances": [{"name": "default", "tags": {}, "credentials": {"app_token": "xapp-test"}}],
+    }
     secrets.get_current_secret_string.return_value = json.dumps(
-        {"version": 2, "integrations": [_SLACK_RECORD]},
+        {"version": 2, "integrations": [stripped]},
         sort_keys=True,
         separators=(",", ":"),
+    )
+    ecs.describe_service.return_value = FargateServiceState(
+        service_arn=SERVICE_ARN,
+        task_definition_arn=TASK_DEFINITION_ARN,
+        desired_count=1,
+        running_count=1,
+        pending_count=0,
+        status="ACTIVE",
     )
     monkeypatch.setattr(
         put_integration_module,
@@ -144,6 +166,9 @@ def test_put_slack_integration_backfills_mapping_on_noop_write(
     assert result["changed"] is False
     secrets.put_current_secret_string.assert_not_called()
     assert repository.slack_team_installs == {"T06TEST": "org-a"}
+    # The token itself still rotates, so running tasks are restarted to pick it up.
+    secrets.put_slack_bot_token_secret.assert_called_once()
+    ecs.update_service.assert_called()
 
 
 def test_put_slack_integration_rejects_invalid_bot_token(
@@ -164,6 +189,7 @@ def test_put_slack_integration_rejects_invalid_bot_token(
     assert caught.value.status_code == 400
     assert caught.value.code == "invalid_slack_bot_token"
     secrets.put_current_secret_string.assert_not_called()
+    secrets.put_slack_bot_token_secret.assert_not_called()
     assert repository.slack_team_installs == {}
 
 

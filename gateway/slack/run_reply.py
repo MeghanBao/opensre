@@ -18,8 +18,18 @@ from gateway.slack.settings import (
     load_slack_credentials,
 )
 from platform.deployment_contracts.models import AgentRun, AgentRunSource
+from platform.observability.errors.boundary import report_exception
 
 _EMPTY_RESULT_FALLBACK = "The agent finished without producing a reply."
+_SENTRY_TAGS = {
+    "surface": "gateway",
+    "component": "gateway.slack.run_reply",
+    "integration": "slack",
+}
+
+
+class SlackRunReplyDeliveryError(RuntimeError):
+    """Raised (and reported) when a Slack-sourced run cannot be answered in-thread."""
 
 
 class SlackRunCompletionNotifier:
@@ -40,9 +50,18 @@ class SlackRunCompletionNotifier:
         context = run.source_context or {}
         channel = context.get("channel")
         if not isinstance(channel, str) or not channel:
-            self._logger.warning(
-                "Slack run %s has no channel in source_context; reply dropped",
-                run.id,
+            report_exception(
+                SlackRunReplyDeliveryError(
+                    f"Slack run {run.id} has no channel in source_context; reply dropped"
+                ),
+                logger=self._logger,
+                message="Slack run reply dropped: missing channel in source_context",
+                tags=_SENTRY_TAGS,
+                extras={
+                    "run_id": run.id,
+                    "organization_id": run.organization_id,
+                },
+                include_traceback=False,
             )
             return
         thread_ts = context.get("thread_ts")
@@ -52,7 +71,19 @@ class SlackRunCompletionNotifier:
             thread_ts=thread_ts if isinstance(thread_ts, str) and thread_ts else None,
         )
         if posted is None:
-            self._logger.warning("Slack reply for run %s failed to post", run.id)
+            report_exception(
+                SlackRunReplyDeliveryError(f"Slack reply for run {run.id} failed to post"),
+                logger=self._logger,
+                message="Slack run reply failed to post via chat.postMessage",
+                tags=_SENTRY_TAGS,
+                extras={
+                    "run_id": run.id,
+                    "organization_id": run.organization_id,
+                    "channel": channel,
+                    "thread_ts": thread_ts if isinstance(thread_ts, str) else None,
+                },
+                include_traceback=False,
+            )
 
 
 def build_slack_run_completion_notifier(
@@ -66,8 +97,15 @@ def build_slack_run_completion_notifier(
     try:
         env = SlackGatewayEnv()
         token = choose_bot_token(env, load_slack_credentials())
-    except Exception:
-        logger.info("Slack bot token unavailable; Slack run replies disabled")
+    except Exception as exc:
+        report_exception(
+            exc,
+            logger=logger,
+            message="Slack bot token unavailable; Slack run replies disabled",
+            severity="warning",
+            tags=_SENTRY_TAGS,
+            include_traceback=False,
+        )
         return None
     return SlackRunCompletionNotifier(
         client=SlackWebApiClient(WebClient(token=token)),
@@ -77,5 +115,6 @@ def build_slack_run_completion_notifier(
 
 __all__ = [
     "SlackRunCompletionNotifier",
+    "SlackRunReplyDeliveryError",
     "build_slack_run_completion_notifier",
 ]

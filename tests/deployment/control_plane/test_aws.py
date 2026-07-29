@@ -36,6 +36,9 @@ FILE_SYSTEM_ARN = "arn:aws:s3files:eu-west-2:123456789012:file-system/fs-123"
 ACCESS_POINT_A_ARN = f"{FILE_SYSTEM_ARN}/access-point/ap-a"
 ACCESS_POINT_B_ARN = f"{FILE_SYSTEM_ARN}/access-point/ap-b"
 BOOTSTRAP_SECRET_ARN = "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/bootstrap-a"
+INTEGRATIONS_SECRET_ARN = (
+    "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/integrations-a"
+)
 TASK_ROLE_A_ARN = "arn:aws:iam::123456789012:role/opensre-tenant-a"
 IMAGE_DIGEST = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/opensre/gateway@sha256:" + ("a" * 64)
 
@@ -305,6 +308,7 @@ def test_identity_and_filesystem_policies_enforce_access_point_isolation() -> No
         file_system_arn=FILE_SYSTEM_ARN,
         access_point_arn=ACCESS_POINT_A_ARN,
         bootstrap_secret_arn=BOOTSTRAP_SECRET_ARN,
+        integrations_secret_arn=INTEGRATIONS_SECRET_ARN,
     )
     serialized_task_policy = json.dumps(task_policy)
 
@@ -313,6 +317,13 @@ def test_identity_and_filesystem_policies_enforce_access_point_isolation() -> No
         "ArnEquals": {"s3files:AccessPointArn": ACCESS_POINT_A_ARN}
     }
     assert task_policy["Statement"][1]["Resource"] == BOOTSTRAP_SECRET_ARN
+    assert task_policy["Statement"][1]["Condition"] == {
+        "ForAnyValue:StringEquals": {"secretsmanager:VersionStage": "AWSCURRENT"}
+    }
+    assert task_policy["Statement"][2]["Resource"] == INTEGRATIONS_SECRET_ARN
+    assert task_policy["Statement"][2]["Condition"] == {
+        "ForAnyValue:StringEquals": {"secretsmanager:VersionStage": "AWSCURRENT"}
+    }
     assert "ClientRootAccess" not in serialized_task_policy
     assert "s3:GetObject" not in serialized_task_policy
     assert ACCESS_POINT_B_ARN not in serialized_task_policy
@@ -359,6 +370,7 @@ def test_tenant_iam_role_receives_only_mount_write_and_bootstrap_permissions() -
         file_system_arn=FILE_SYSTEM_ARN,
         access_point_arn=ACCESS_POINT_A_ARN,
         bootstrap_secret_arn=BOOTSTRAP_SECRET_ARN,
+        integrations_secret_arn=INTEGRATIONS_SECRET_ARN,
         tags={"organization": "org-a"},
     )
 
@@ -379,6 +391,7 @@ def test_tenant_iam_role_receives_only_mount_write_and_bootstrap_permissions() -
         "secretsmanager:GetSecretValue",
     }
     assert policy["Statement"][1]["Resource"] == BOOTSTRAP_SECRET_ARN
+    assert policy["Statement"][2]["Resource"] == INTEGRATIONS_SECRET_ARN
     _validate_sdk_request("iam", "CreateRole", iam.create_role.call_args.kwargs)
     _validate_sdk_request(
         "iam",
@@ -398,6 +411,7 @@ def _task_spec(image: str = IMAGE_DIGEST) -> GatewayTaskDefinitionSpec:
         file_system_arn=FILE_SYSTEM_ARN,
         access_point_arn=ACCESS_POINT_A_ARN,
         bootstrap_secret_arn=BOOTSTRAP_SECRET_ARN,
+        integrations_secret_arn=INTEGRATIONS_SECRET_ARN,
         credentials_api_url="https://credentials.example.test",
         log_group="/opensre/organization-agents/dev",
         log_region="eu-west-2",
@@ -455,6 +469,8 @@ def test_registers_secret_safe_s3_files_task_definition() -> None:
         "MODE": "gateway",
         "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN": BOOTSTRAP_SECRET_ARN,
         "OPENSRE_CREDENTIALS_API_URL": "https://credentials.example.test",
+        "OPENSRE_INTEGRATIONS_SECRET_ARN": INTEGRATIONS_SECRET_ARN,
+        "OPENSRE_INTEGRATIONS_STORE_PATH": "/run/opensre/integrations.json",
         "OPENSRE_SIZE_PROFILE": "SMALL",
         "OPENSRE_WORKSPACE": "/workspace/files",
         "ORGANIZATION_ID": "org-a",
@@ -566,10 +582,28 @@ def test_ensure_bootstrap_secret_creates_minimal_payload_when_missing() -> None:
     assert arn == BOOTSTRAP_SECRET_ARN
     create = secrets_client.create_secret.call_args.kwargs
     assert create["Name"] == "opensre/tenants/org-a/credentials-api-bootstrap"
-    assert json.loads(create["SecretString"]) == {
-        "credentials_api_token": "bootstrap-random-value"
-    }
+    assert json.loads(create["SecretString"]) == {"credentials_api_token": "bootstrap-random-value"}
     assert create["Tags"] == [{"Key": "organization-id", "Value": "org-a"}]
+    _validate_sdk_request("secretsmanager", "CreateSecret", create)
+
+
+def test_ensure_integrations_secret_creates_empty_v2_store_when_missing() -> None:
+    secrets_client = MagicMock()
+    secrets_client.describe_secret.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}},
+        "DescribeSecret",
+    )
+    secrets_client.create_secret.return_value = {"ARN": INTEGRATIONS_SECRET_ARN}
+    adapter = TenantSecretsManagerAdapter(secrets_client)
+
+    arn = adapter.ensure_integrations_secret(
+        secret_name="opensre/tenants/org-a/integrations",
+        tags={"organization-id": "org-a"},
+    )
+
+    assert arn == INTEGRATIONS_SECRET_ARN
+    create = secrets_client.create_secret.call_args.kwargs
+    assert json.loads(create["SecretString"]) == {"version": 2, "integrations": []}
     _validate_sdk_request("secretsmanager", "CreateSecret", create)
 
 

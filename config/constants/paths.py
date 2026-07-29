@@ -143,7 +143,17 @@ def session_home() -> Path:
 
 
 def integrations_store_path() -> Path:
-    """Integrations store path (shared by every member of the org)."""
+    """Integrations store path (shared by every member of the org).
+
+    Gateway tasks may override this to a private ephemeral path such as
+    ``/run/opensre/integrations.json`` so secrets never land on the memories
+    mount.
+    """
+    from config.constants.credentials import INTEGRATIONS_STORE_PATH_ENV
+
+    override = os.getenv(INTEGRATIONS_STORE_PATH_ENV, "").strip()
+    if override:
+        return Path(override).expanduser()
     return opensre_home() / "integrations.json"
 
 

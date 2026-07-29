@@ -53,6 +53,9 @@ BOOTSTRAP_SECRET_ARN = (
     "arn:aws:secretsmanager:eu-west-2:123456789012:secret:"
     "opensre/tenants/org-a/credentials-api-bootstrap"
 )
+INTEGRATIONS_SECRET_ARN = (
+    "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/tenants/org-a/integrations"
+)
 PUBLIC_SECRET_ARN = (
     "arn:aws:secretsmanager:eu-west-2:123456789012:secret:opensre/tenants/org-a/public-api"
 )
@@ -127,6 +130,11 @@ class MemoryLifecycleRepository:
     def with_filesystem_isolation_lock(self) -> Iterator[None]:
         yield
 
+    @contextmanager
+    def with_integrations_secret_lock(self, organization_id: str) -> Iterator[None]:
+        del organization_id
+        yield
+
 
 def _config() -> TenantFleetConfig:
     return TenantFleetConfig(
@@ -181,10 +189,17 @@ def _dependencies() -> tuple[
     iam.ensure_task_role.return_value = TASK_ROLE_ARN
     secrets = MagicMock(spec=TenantSecretsManagerAdapter)
     secrets.describe_secret_arn.side_effect = lambda secret_id: (
-        PUBLIC_SECRET_ARN if "public-api" in secret_id else BOOTSTRAP_SECRET_ARN
+        PUBLIC_SECRET_ARN
+        if "public-api" in secret_id
+        else INTEGRATIONS_SECRET_ARN
+        if "integrations" in secret_id
+        else BOOTSTRAP_SECRET_ARN
     )
-    secrets.secret_exists.side_effect = lambda secret_id: "credentials-api-bootstrap" in secret_id
+    secrets.secret_exists.side_effect = lambda secret_id: (
+        "credentials-api-bootstrap" in secret_id or "integrations" in secret_id
+    )
     secrets.ensure_bootstrap_secret.return_value = BOOTSTRAP_SECRET_ARN
+    secrets.ensure_integrations_secret.return_value = INTEGRATIONS_SECRET_ARN
     secrets.create_public_api_credential.return_value = TenantPublicApiCredential(
         key_id="unused-by-lifecycle-test",
         secret_arn=PUBLIC_SECRET_ARN,
@@ -242,6 +257,7 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     assert result.deployment.s3_access_point_arn == ACCESS_POINT_ARN
     assert result.deployment.task_role_arn == TASK_ROLE_ARN
     assert result.deployment.bootstrap_secret_arn == BOOTSTRAP_SECRET_ARN
+    assert result.deployment.integrations_secret_arn == INTEGRATIONS_SECRET_ARN
     assert result.deployment.task_definition_arn == TASK_DEFINITION_ARN
     assert result.deployment.service_arn == SERVICE_ARN
 
@@ -262,9 +278,11 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
     role_request = iam.ensure_task_role.call_args.kwargs
     assert role_request["access_point_arn"] == ACCESS_POINT_ARN
     assert role_request["bootstrap_secret_arn"] == BOOTSTRAP_SECRET_ARN
+    assert role_request["integrations_secret_arn"] == INTEGRATIONS_SECRET_ARN
     task_spec = ecs.register_gateway_task_definition.call_args.args[0]
     assert task_spec.access_point_arn == ACCESS_POINT_ARN
     assert task_spec.bootstrap_secret_arn == BOOTSTRAP_SECRET_ARN
+    assert task_spec.integrations_secret_arn == INTEGRATIONS_SECRET_ARN
     assert task_spec.task_role_arn == TASK_ROLE_ARN
     assert task_spec.execution_role_arn != TASK_ROLE_ARN
     assert task_spec.size_profile == "SMALL"
@@ -276,9 +294,16 @@ def test_provision_reconciles_full_boundary_and_returns_bearer_once() -> None:
             "enabled": "true",
         },
     )
-    secrets.enable_secret_access.assert_called_with(
-        "opensre/tenants/org-a/credentials-api-bootstrap"
+    secrets.ensure_integrations_secret.assert_called_once_with(
+        secret_name="opensre/tenants/org-a/integrations",
+        tags={
+            "managed-by": "opensre",
+            "organization-id": "org-a",
+            "enabled": "true",
+        },
     )
+    secrets.enable_secret_access.assert_any_call("opensre/tenants/org-a/credentials-api-bootstrap")
+    secrets.enable_secret_access.assert_any_call("opensre/tenants/org-a/integrations")
 
     stored_credential = next(iter(repository.credentials.values()))
     assert stored_credential.secret_arn == PUBLIC_SECRET_ARN
@@ -525,10 +550,12 @@ def test_delete_removes_compute_disables_credentials_and_preserves_storage() -> 
     assert {call.args[0] for call in disabled_tag_calls} == {
         PUBLIC_SECRET_ARN,
         BOOTSTRAP_SECRET_ARN,
+        INTEGRATIONS_SECRET_ARN,
     }
     assert {call.args[0] for call in secrets.disable_secret_access.call_args_list} == {
         PUBLIC_SECRET_ARN,
         BOOTSTRAP_SECRET_ARN,
+        INTEGRATIONS_SECRET_ARN,
     }
     assert s3_files.method_calls.count(("delete_access_point", (), {})) == 0
     assert iam.method_calls.count(("delete_task_role", (), {})) == 0

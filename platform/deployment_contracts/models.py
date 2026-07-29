@@ -57,6 +57,7 @@ class TenantDeployment:
     s3_filesystem_arn: str | None = None
     s3_access_point_arn: str | None = None
     bootstrap_secret_arn: str | None = None
+    integrations_secret_arn: str | None = None
     last_error_code: str | None = None
 
 

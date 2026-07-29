@@ -21,13 +21,17 @@ from integrations.credentials_api import IntegrationStoreV2
 
 
 class _Secrets:
-    def __init__(self, secret: str) -> None:
-        self.secret = secret
-        self.calls: list[str] = []
+    def __init__(self, secrets: dict[str, str] | str) -> None:
+        self.secrets = {"default": secrets} if isinstance(secrets, str) else dict(secrets)
+        self.calls: list[tuple[str, str | None]] = []
 
-    def get_secret_value(self, *, SecretId: str) -> dict[str, Any]:
-        self.calls.append(SecretId)
-        return {"SecretString": self.secret}
+    def get_secret_value(self, **kwargs: Any) -> dict[str, Any]:
+        secret_id = kwargs["SecretId"]
+        version_stage = kwargs.get("VersionStage")
+        self.calls.append((secret_id, version_stage))
+        if "default" in self.secrets and secret_id not in self.secrets:
+            return {"SecretString": self.secrets["default"]}
+        return {"SecretString": self.secrets[secret_id]}
 
 
 class _ApiClient:
@@ -94,12 +98,65 @@ def test_hydrates_exact_secret_and_atomically_writes_private_v2_store(
 
     bootstrap = hydrator.hydrate()
 
-    assert secrets.calls == ["arn:aws:secretsmanager:region:account:secret:org-a"]
+    assert secrets.calls == [("arn:aws:secretsmanager:region:account:secret:org-a", "AWSCURRENT")]
     assert _ApiClient.authorization == "bootstrap-token"
     assert bootstrap.database_url == "postgresql://neon.invalid/test"
     assert json.loads(path.read_text())["version"] == 2
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+def test_hydrates_integrations_secret_into_ephemeral_store(
+    tmp_path: Path,
+) -> None:
+    store_path = tmp_path / "run" / "opensre" / "integrations.json"
+    bootstrap_arn = "arn:aws:secretsmanager:region:account:secret:bootstrap"
+    integrations_arn = "arn:aws:secretsmanager:region:account:secret:integrations"
+    secrets = _Secrets(
+        {
+            bootstrap_arn: json.dumps({"credentials_api_token": "bootstrap-token"}),
+            integrations_arn: json.dumps(
+                {
+                    "version": 2,
+                    "integrations": [
+                        {
+                            "id": "stub-1",
+                            "service": "stub",
+                            "status": "active",
+                            "instances": [
+                                {
+                                    "name": "sandbox",
+                                    "tags": {},
+                                    "credentials": {"token": "from-sm"},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+        }
+    )
+    hydrator = GatewayCredentialHydrator(
+        config=CredentialHydrationConfig(
+            organization_id="org-a",
+            bootstrap_secret_arn=bootstrap_arn,
+            integrations_secret_arn=integrations_arn,
+            integrations_store_path=str(store_path),
+        ),
+        secrets_client=secrets,
+    )
+
+    bootstrap = hydrator.hydrate()
+
+    assert bootstrap.integrations_hydrated is True
+    assert secrets.calls == [
+        (bootstrap_arn, "AWSCURRENT"),
+        (integrations_arn, "AWSCURRENT"),
+    ]
+    written = json.loads(store_path.read_text())
+    assert written["integrations"][0]["instances"][0]["credentials"]["token"] == "from-sm"
+    assert stat.S_IMODE(store_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(store_path.parent.stat().st_mode) == 0o700
 
 
 def test_partial_environment_configuration_is_rejected(

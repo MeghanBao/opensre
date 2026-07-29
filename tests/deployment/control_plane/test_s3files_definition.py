@@ -45,6 +45,17 @@ def _task_definition() -> dict[str, object]:
                         "name": "OPENSRE_CREDENTIALS_BOOTSTRAP_SECRET_ARN",
                         "value": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:tenant-a",
                     },
+                    {
+                        "name": "OPENSRE_INTEGRATIONS_SECRET_ARN",
+                        "value": (
+                            "arn:aws:secretsmanager:eu-west-1:123456789012:secret:"
+                            "tenant-a-integrations"
+                        ),
+                    },
+                    {
+                        "name": "OPENSRE_INTEGRATIONS_STORE_PATH",
+                        "value": "/run/opensre/integrations.json",
+                    },
                 ],
             }
         ],

@@ -29,6 +29,8 @@ _OPENSRE_INFRA_AWS_TEST_MARKERS = (
     "/tests/platform/deployment_multi_tenant",
     "/tests/deployment/control_plane",
 )
+
+
 def _infra_aws_available() -> bool:
     # ``find_spec`` raises ModuleNotFoundError when the *parent* package is
     # absent, which is the normal case now that the infra repo is not vendored.

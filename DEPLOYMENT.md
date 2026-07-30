@@ -82,27 +82,25 @@ make destroy-gateway-on-new-server
 ## Fargate multi-tenant deployment (Terraform)
 
 The shared ECS Fargate foundation, IAM lifecycle API, and public-run API live in
-the private [`Tracer-Cloud/opensre-infra-aws`](https://github.com/Tracer-Cloud/opensre-infra-aws)
-repository, vendored here as a git submodule at
-[`platform/deployment_multi_tenant/`](platform/deployment_multi_tenant/).
+the separate private
+[`Tracer-Cloud/opensre-infra-aws`](https://github.com/Tracer-Cloud/opensre-infra-aws)
+repository. It is not part of this repository; only the shared contracts in
+[`platform/deployment_contracts/`](platform/deployment_contracts/) live here.
 
-Internal developers (with access to that private repo) must initialize it before
-deploying or running Fargate/control-plane tests:
+Internal developers (with access to that private repo) clone it separately
+before deploying or running Fargate/control-plane tests:
 
 ```bash
-git submodule update --init platform/deployment_multi_tenant
+git clone https://github.com/Tracer-Cloud/opensre-infra-aws.git
 ```
 
-Contents once checked out:
+Contents of that repository:
 
-- Fleet + APIs: [`modules/fargate_fleet`](platform/deployment_multi_tenant/modules/fargate_fleet/)
-  (composes [`modules/api_control_plane`](platform/deployment_multi_tenant/modules/api_control_plane/)
-  and [`modules/api_public_forwarder`](platform/deployment_multi_tenant/modules/api_public_forwarder/))
-- Control-plane runtime:
-  [`lambda_control_plane/`](platform/deployment_multi_tenant/lambda_control_plane/)
-- Public-forwarder runtime:
-  [`lambda_public_forwarder/`](platform/deployment_multi_tenant/lambda_public_forwarder/)
-- Shared S3 Files memories: [`stacks/shared`](platform/deployment_multi_tenant/stacks/shared/)
+- Fleet + APIs: `modules/fargate_fleet` (composes `modules/api_control_plane`
+  and `modules/api_public_forwarder`)
+- Control-plane runtime: `lambda_control_plane/`
+- Public-forwarder runtime: `lambda_public_forwarder/`
+- Shared S3 Files memories: `stacks/shared`
 
 Per-organization Gateway services, task definitions, tenant IAM roles, secrets, and
 S3 Files access points are created by the Python control-plane lifecycle. The
@@ -123,24 +121,25 @@ reconciles the filesystem-wide tenant isolation policy.
 
 ### Deploy
 
+From an `opensre-infra-aws` checkout:
+
 ```bash
-cd platform/deployment_multi_tenant/stacks/shared && terraform init -input=false && cd -
-cd platform/deployment_multi_tenant
-./scripts/build-lambda-bundles.sh --repo-root ../..   # Lambda zips into dist/
+cd stacks/shared && terraform init -input=false && cd -
+./scripts/build-lambda-bundles.sh              # Lambda zips into dist/
 cd modules/fargate_fleet
-cp terraform.tfvars.example terraform.tfvars          # fill in real values
+cp terraform.tfvars.example terraform.tfvars   # fill in real values
 terraform init -input=false && terraform apply
 ```
 
 Before the control-plane's first deploy, apply the idempotent Postgres schema by
-invoking
-`platform/deployment_multi_tenant/lambda_control_plane/migration_runtime.py`
-out of band so run tables exist.
+invoking `lambda_control_plane/migration_runtime.py` out of band so run tables
+exist.
 
-Bundle whitelist check (no AWS credentials):
+Bundle whitelist check (no AWS credentials; point `OPENSRE_INFRA_AWS_DIR` at
+your local `opensre-infra-aws` checkout):
 
 ```bash
-make cdk-verify
+make cdk-verify OPENSRE_INFRA_AWS_DIR=/path/to/opensre-infra-aws
 ```
 
 Verify a live deployment end to end (provisions a gateway, prompts it through
@@ -148,16 +147,15 @@ Verify a live deployment end to end (provisions a gateway, prompts it through
 first):
 
 ```bash
-uv run python platform/deployment_multi_tenant/scripts/e2e_fargate_verify.py \
+uv run python /path/to/opensre-infra-aws/scripts/e2e_fargate_verify.py \
   --control-plane-endpoint "$(terraform output -raw control_plane_api_endpoint)" \
   --public-forwarder-endpoint "$(terraform output -raw public_forwarder_api_endpoint)" \
   --organization-id org_tf_e2e \
   --lifecycle-role-arn arn:aws:iam::<account>:role/opensre-lifecycle-admin
 ```
 
-See [platform/deployment_multi_tenant/TERRAFORM.md](platform/deployment_multi_tenant/TERRAFORM.md)
-and [platform/deployment_multi_tenant/README.md](platform/deployment_multi_tenant/README.md)
-for stack layout and naming.
+See `TERRAFORM.md` and `README.md` in the `opensre-infra-aws` repository for
+stack layout and naming.
 
 ---
 

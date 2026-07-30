@@ -1,7 +1,7 @@
-# Deploy GitHub Pages without cloning private submodules.
-# Legacy "branch" Pages always runs ``git submodule update --init`` and cannot
-# authenticate to opensre-infra-aws, so builds fail after the multi-tenant
-# submodule lands on main. Actions checkout with submodules disabled avoids that.
+# Deploy GitHub Pages via Actions checkout (submodules disabled). The repo no
+# longer vendors private submodules; keeping submodules off stays safe if one
+# ever reappears, since legacy "branch" Pages cannot authenticate to private
+# repositories.
 name: Deploy GitHub Pages
 
 on:

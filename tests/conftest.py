@@ -22,9 +22,9 @@ ensure_project_platform_package()
 
 _ENV_PATH = paths.PROJECT_ROOT / ".env"
 
-# Private opensre-infra-aws submodule paths. Without
-# ``git submodule update --init platform/deployment_multi_tenant``, collection of
-# these trees fails for community/fork CI.
+# Test paths that need the private opensre-infra-aws repository. Without a
+# checkout of it importable as ``platform.deployment_multi_tenant``, collection
+# of these trees fails for community/fork CI.
 _OPENSRE_INFRA_AWS_TEST_MARKERS = (
     "/tests/platform/deployment_multi_tenant",
     "/tests/deployment/control_plane",
@@ -42,7 +42,7 @@ if not _OPENSRE_INFRA_AWS_AVAILABLE:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Drop explicit CLI paths that need the private submodule when it is absent."""
+    """Drop explicit CLI paths that need the private infra package when it is absent."""
     _load_env()
     _disable_sentry()
     _mark_tests_for_analytics()

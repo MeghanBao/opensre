@@ -303,13 +303,14 @@ install-gateway-on-new-server:
 destroy-gateway-on-new-server:
 	$(PYTHON) -m platform.deployment_ec2.telegram_gateway.lifecycle destroy-installed-server
 
-# Fargate fleet + Lambda APIs are Terraform under platform/deployment_multi_tenant
-# (see DEPLOYMENT.md). cdk-verify keeps the historical Make/CI name.
+# Fargate fleet + Lambda APIs are Terraform in the private opensre-infra-aws
+# repository (see DEPLOYMENT.md). Point OPENSRE_INFRA_AWS_DIR at a local
+# checkout of it. cdk-verify keeps the historical Make/CI name.
 OPENSRE_INFRA_AWS_DIR ?= platform/deployment_multi_tenant
 
 cdk-verify:
 	@if [ ! -f "$(OPENSRE_INFRA_AWS_DIR)/scripts/build-lambda-bundles.sh" ]; then \
-		echo "Skipping cdk-verify: $(OPENSRE_INFRA_AWS_DIR) submodule not checked out"; \
+		echo "Skipping cdk-verify: private infra checkout not found at $(OPENSRE_INFRA_AWS_DIR)"; \
 	else \
 		uv run pytest tests/platform/deployment_multi_tenant/test_lambda_bundle_paths.py -q; \
 	fi

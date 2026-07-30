@@ -16,7 +16,7 @@ Initial areas:
 - `common/` owns small shared helpers that do not belong to a runtime subsystem.
 - `cloudflare_install_proxy/` owns the Cloudflare Worker for `install.opensre.com`.
 - `deployment_ec2/` owns EC2 AWS primitives and Telegram gateway AMI/systemd deploy (`telegram_gateway/`). Makefile: `make deploy-gateway`.
-- `deployment_multi_tenant/` owns Fargate control plane, public API forwarder, and shared fleet CDK.
+- `deployment_contracts/` owns shared multi-tenant deployment contracts (models and gateway-facing ports). The Fargate control plane, public API forwarder, and shared fleet Terraform live in the separate private [`Tracer-Cloud/opensre-infra-aws`](https://github.com/Tracer-Cloud/opensre-infra-aws) repository.
 - `notifications/` owns notification delivery transports and channel-specific senders.
 - `observability/` owns logging, tracing, progress, debug output, and runtime
   display ports.

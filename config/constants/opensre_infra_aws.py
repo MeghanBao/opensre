@@ -1,4 +1,9 @@
-"""Constants for the in-tree OpenSRE AWS infrastructure Terraform contract."""
+"""Constants for the OpenSRE AWS infrastructure Terraform contract.
+
+The infrastructure itself lives in the separate private
+``Tracer-Cloud/opensre-infra-aws`` repository; point ``OPENSRE_INFRA_AWS_DIR``
+at a local checkout of it.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +11,6 @@ OPENSRE_INFRA_AWS_REPO_URL = "https://github.com/Tracer-Cloud/opensre-infra-aws/
 OPENSRE_INFRA_AWS_GIT_URL = "https://github.com/Tracer-Cloud/opensre-infra-aws.git"
 OPENSRE_INFRA_AWS_DIR_ENV = "OPENSRE_INFRA_AWS_DIR"
 OPENSRE_INFRA_AWS_ENVIRONMENT_ENV = "OPENSRE_INFRA_AWS_ENVIRONMENT"
-# Private opensre-infra-aws git submodule checkout path in this repository.
-OPENSRE_INFRA_AWS_SUBMODULE_RELATIVE_PATH = "platform/deployment_multi_tenant"
 
 OPENSRE_INFRA_AWS_SHARED_STACK_RELATIVE_PATH = "stacks/shared"
 OPENSRE_INFRA_AWS_MEMORIES_OUTPUT_NAME = "memories"
@@ -40,6 +43,5 @@ __all__ = [
     "OPENSRE_INFRA_AWS_MEMORIES_OUTPUT_NAME",
     "OPENSRE_INFRA_AWS_REPO_URL",
     "OPENSRE_INFRA_AWS_SHARED_STACK_RELATIVE_PATH",
-    "OPENSRE_INFRA_AWS_SUBMODULE_RELATIVE_PATH",
     "OPENSRE_INFRA_AWS_SUBNET_IDS_FIELD",
 ]

@@ -29,9 +29,16 @@ _OPENSRE_INFRA_AWS_TEST_MARKERS = (
     "/tests/platform/deployment_multi_tenant",
     "/tests/deployment/control_plane",
 )
-_OPENSRE_INFRA_AWS_AVAILABLE = (
-    find_spec("platform.deployment_multi_tenant.lambda_control_plane") is not None
-)
+def _infra_aws_available() -> bool:
+    # ``find_spec`` raises ModuleNotFoundError when the *parent* package is
+    # absent, which is the normal case now that the infra repo is not vendored.
+    try:
+        return find_spec("platform.deployment_multi_tenant.lambda_control_plane") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+_OPENSRE_INFRA_AWS_AVAILABLE = _infra_aws_available()
 
 if not _OPENSRE_INFRA_AWS_AVAILABLE:
     # Relative to this conftest — covers directory discovery.

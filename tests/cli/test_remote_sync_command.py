@@ -181,3 +181,73 @@ def test_sync_help_documents_direction_flags(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert "--pull-only" in result.output
     assert "--push-only" in result.output
+
+
+def test_setup_prompts_and_writes_config(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        "surfaces.cli.commands.remote_sync.write_remote_sync_config",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="aws\nmy-bucket\nopensre\n\n\n",
+    )
+    assert result.exit_code == 0
+    assert captured == {
+        "provider": "aws",
+        "bucket": "my-bucket",
+        "prefix": "opensre",
+        "region": "",
+        "profile": "",
+    }
+    assert "Saved remote-sync settings" in result.output
+    assert "enable syncing" in result.output
+
+
+def test_setup_uses_defaults_on_blank_provider_and_prefix(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        "surfaces.cli.commands.remote_sync.write_remote_sync_config",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="\nmy-bucket\n\nus-east-1\nwork\n",
+    )
+    assert result.exit_code == 0
+    assert captured["provider"] == "aws"
+    assert captured["prefix"] == "opensre"
+    assert captured["region"] == "us-east-1"
+    assert captured["profile"] == "work"
+
+
+def test_setup_failure_exits_nonzero(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(**_kwargs: str) -> None:
+        raise RemoteSyncConfigError("could not write settings")
+
+    monkeypatch.setattr(
+        "surfaces.cli.commands.remote_sync.write_remote_sync_config",
+        _boom,
+    )
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="aws\nmy-bucket\nopensre\n\n\n",
+    )
+    assert result.exit_code != 0
+    assert "could not write settings" in result.output
+
+
+def test_remote_sync_help_lists_setup(runner: CliRunner) -> None:
+    result = runner.invoke(remote_sync_command, ["--help"])
+    assert result.exit_code == 0
+    assert RemoteSyncSubcommand.SETUP in result.output

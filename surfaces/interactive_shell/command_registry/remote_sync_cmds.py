@@ -6,11 +6,20 @@ import logging
 
 from rich.console import Console
 
-from config.constants.filestorage import DEFAULT_REMOTE_SYNC_PROVIDER
+from config.constants.filestorage import (
+    DEFAULT_REMOTE_SYNC_PREFIX,
+    DEFAULT_REMOTE_SYNC_PROVIDER,
+    REMOTE_SYNC_ENV,
+)
+from config.local_settings import LocalSettingsError, local_settings_path
 from platform.filestorage import OrgScopeNotSupportedError, RemoteSyncError
 from platform.filestorage.enums import RemoteSyncSubcommand
 from platform.filestorage.messages import DISABLED_HELP, format_report_lines
-from platform.filestorage.operations import get_sync_status, run_remote_sync
+from platform.filestorage.operations import (
+    get_sync_status,
+    run_remote_sync,
+    write_remote_sync_config,
+)
 from surfaces.interactive_shell.command_registry.types import SlashCommand
 from surfaces.interactive_shell.runtime import Session
 from surfaces.interactive_shell.ui import DIM, ERROR, HIGHLIGHT
@@ -18,8 +27,8 @@ from surfaces.interactive_shell.ui import DIM, ERROR, HIGHLIGHT
 logger = logging.getLogger(__name__)
 
 _USAGE = (
-    f"/remote-sync [{RemoteSyncSubcommand.STATUS}|{RemoteSyncSubcommand.SYNC}] "
-    "[--pull-only|--push-only]"
+    f"/remote-sync [{RemoteSyncSubcommand.STATUS}|{RemoteSyncSubcommand.SYNC}"
+    f"|{RemoteSyncSubcommand.SETUP}] [--pull-only|--push-only]"
 )
 
 
@@ -62,6 +71,27 @@ def _run_sync(console: Console, args: list[str]) -> bool:
     return True
 
 
+def _run_setup(console: Console) -> bool:
+    console.print("Configure remote-sync connection settings (does not enable or verify it).")
+    provider = (
+        console.input(f"[{HIGHLIGHT}]Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> [/]").strip()
+        or DEFAULT_REMOTE_SYNC_PROVIDER
+    )
+    bucket = console.input(f"[{HIGHLIGHT}]Bucket> [/]").strip()
+    prefix = (
+        console.input(f"[{HIGHLIGHT}]Prefix [{DEFAULT_REMOTE_SYNC_PREFIX}]> [/]").strip()
+        or DEFAULT_REMOTE_SYNC_PREFIX
+    )
+    region = console.input(f"[{HIGHLIGHT}]Region (optional)> [/]").strip()
+    profile = console.input(f"[{HIGHLIGHT}]Profile (optional)> [/]").strip()
+    write_remote_sync_config(
+        provider=provider, bucket=bucket, prefix=prefix, region=region, profile=profile
+    )
+    console.print(f"Saved remote-sync settings to [{HIGHLIGHT}]{local_settings_path()}[/].")
+    console.print(f"[{DIM}]Set {REMOTE_SYNC_ENV}=1 to enable syncing.[/]")
+    return True
+
+
 def _parse_subcommand(raw: str) -> RemoteSyncSubcommand | None:
     try:
         return RemoteSyncSubcommand(raw)
@@ -77,16 +107,20 @@ def _cmd_remote_sync(_session: Session, console: Console, args: list[str]) -> bo
             return _print_status(console)
         if sub is RemoteSyncSubcommand.SYNC:
             return _run_sync(console, args[1:])
+        if sub is RemoteSyncSubcommand.SETUP:
+            return _run_setup(console)
     except OrgScopeNotSupportedError as exc:
         # Safe to show: our own wording, no vendor or credential detail.
         console.print(f"[{DIM}]{exc}[/]")
         return True
-    except RemoteSyncError:
+    except (RemoteSyncError, LocalSettingsError):
         # This handler also serves gateway chat, an external surface, so the
         # provider's message never reaches the reply. Detail goes to the log.
+        # LocalSettingsError covers a malformed/unwritable config.yml, which
+        # setup can hit even though it never touches an ObjectStore.
         logger.warning("[remote-sync] command failed", exc_info=True)
         console.print(
-            f"[{ERROR}]Sync failed.[/] Check the opensre log, "
+            f"[{ERROR}]Command failed.[/] Check the opensre log, "
             "or run [bold]opensre remote-sync status[/bold] locally for detail."
         )
         return True
@@ -116,6 +150,10 @@ COMMANDS: tuple[SlashCommand, ...] = (
                 "show whether sync is on and what would be mirrored",
             ),
             (RemoteSyncSubcommand.SYNC.value, "pull remote changes, then push local ones"),
+            (
+                RemoteSyncSubcommand.SETUP.value,
+                "configure provider/bucket/prefix/region/profile (does not enable it)",
+            ),
         ),
         use_cases=(
             "sync my conversations to S3",

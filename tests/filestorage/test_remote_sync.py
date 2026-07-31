@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 
 from config.constants.filestorage import (
+    DEFAULT_REMOTE_SYNC_PREFIX,
+    DEFAULT_REMOTE_SYNC_PROVIDER,
     REMOTE_SYNC_BUCKET_ENV,
     REMOTE_SYNC_ENV,
     REMOTE_SYNC_PREFIX_ENV,
@@ -816,18 +818,26 @@ def test_org_scoped_turn_refuses_to_sync(monkeypatch: pytest.MonkeyPatch) -> Non
     from config.principal import Actor, Principal, StorageScope
     from config.scope_context import bound_storage_scope
     from platform.filestorage.errors import OrgScopeNotSupportedError
-    from platform.filestorage.operations import get_sync_status, run_remote_sync
+    from platform.filestorage.operations import (
+        get_sync_status,
+        run_remote_sync,
+        write_remote_sync_config,
+    )
 
     monkeypatch.setenv(REMOTE_SYNC_ENV, "1")
     monkeypatch.setenv(REMOTE_SYNC_BUCKET_ENV, "shared-bucket")
     scope = StorageScope(principal=Principal.org("org_acme"), actor=Actor(id="U_ALICE"))
 
-    # Act / Assert: both entry points fail closed while the scope is bound.
+    # Act / Assert: all three entry points fail closed while the scope is bound.
     with bound_storage_scope(scope):
         with pytest.raises(OrgScopeNotSupportedError):
             run_remote_sync()
         with pytest.raises(OrgScopeNotSupportedError):
             get_sync_status()
+        with pytest.raises(OrgScopeNotSupportedError):
+            write_remote_sync_config(
+                provider="aws", bucket="shared-bucket", prefix="opensre", region="", profile=""
+            )
 
 
 def test_unbound_laptop_turn_still_syncs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -934,3 +944,85 @@ def test_list_prefix_is_delimited_so_a_sibling_bucket_path_cannot_match() -> Non
 
     # Assert
     assert seen["Prefix"] == "opensre/"
+
+
+# ── /remote-sync setup writes settings without enabling sync ────────────────
+
+
+def test_write_remote_sync_config_persists_the_five_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """setup stages a destination; it must not flip the enabled switch."""
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import read_section
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+
+    # Act
+    write_remote_sync_config(
+        provider="AWS",
+        bucket=" my-bucket ",
+        prefix="",
+        region="us-east-1",
+        profile="work",
+    )
+
+    # Assert: normalized values landed, and "enabled" was never written.
+    section = read_section("remote_sync")
+    assert section == {
+        "provider": "aws",
+        "bucket": "my-bucket",
+        "prefix": "opensre",
+        "region": "us-east-1",
+        "profile": "work",
+    }
+    assert "enabled" not in section
+
+
+def test_write_remote_sync_config_round_trips_once_enabled_separately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Naming a bucket alone must not enable sync; the switch stays separate."""
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import update_section
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+    for name in (REMOTE_SYNC_ENV, REMOTE_SYNC_BUCKET_ENV, REMOTE_SYNC_PREFIX_ENV):
+        monkeypatch.delenv(name, raising=False)
+
+    # Act: setup alone must not turn sync on.
+    write_remote_sync_config(
+        provider="aws", bucket="my-bucket", prefix="opensre", region="", profile=""
+    )
+    assert load_remote_sync_config() is None
+
+    # Enabling separately (the "enabled" key, mirroring what a later CLI/slash
+    # confirmation step would set) makes the same written settings take effect.
+    update_section("remote_sync", {"enabled": True})
+    config = load_remote_sync_config()
+    assert config is not None
+    assert config.bucket == "my-bucket"
+    assert config.provider == "aws"
+
+
+def test_write_remote_sync_config_defaults_blank_provider_and_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import read_section
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+
+    # Act
+    write_remote_sync_config(provider="", bucket="b", prefix="  ", region="", profile="")
+
+    # Assert
+    section = read_section("remote_sync")
+    assert section["provider"] == DEFAULT_REMOTE_SYNC_PROVIDER
+    assert section["prefix"] == DEFAULT_REMOTE_SYNC_PREFIX

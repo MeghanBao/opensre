@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import click
 
+from config.constants.filestorage import (
+    DEFAULT_REMOTE_SYNC_PREFIX,
+    DEFAULT_REMOTE_SYNC_PROVIDER,
+    REMOTE_SYNC_ENV,
+)
+from config.local_settings import LocalSettingsError, local_settings_path
 from platform.common.exit_codes import ERROR, SUCCESS
 from platform.filestorage import RemoteSyncError
 from platform.filestorage.enums import RemoteSyncSubcommand
@@ -12,7 +18,11 @@ from platform.filestorage.messages import (
     format_report_lines,
     format_status_lines,
 )
-from platform.filestorage.operations import get_sync_status, run_remote_sync
+from platform.filestorage.operations import (
+    get_sync_status,
+    run_remote_sync,
+    write_remote_sync_config,
+)
 
 
 @click.group(name="remote-sync", invoke_without_command=True)
@@ -33,6 +43,26 @@ def status_command() -> None:
         raise SystemExit(ERROR) from exc
     for line in lines:
         click.echo(line)
+    raise SystemExit(SUCCESS)
+
+
+@remote_sync_command.command(name=RemoteSyncSubcommand.SETUP.value)
+def setup_command() -> None:
+    """Configure remote-sync connection settings (does not enable or verify it)."""
+    provider = click.prompt("Provider", default=DEFAULT_REMOTE_SYNC_PROVIDER)
+    bucket = click.prompt("Bucket")
+    prefix = click.prompt("Prefix", default=DEFAULT_REMOTE_SYNC_PREFIX)
+    region = click.prompt("Region", default="", show_default=False)
+    profile = click.prompt("Profile", default="", show_default=False)
+    try:
+        write_remote_sync_config(
+            provider=provider, bucket=bucket, prefix=prefix, region=region, profile=profile
+        )
+    except (RemoteSyncError, LocalSettingsError) as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(ERROR) from exc
+    click.echo(f"Saved remote-sync settings to {local_settings_path()}.")
+    click.echo(f"Set {REMOTE_SYNC_ENV}=1 to enable syncing.")
     raise SystemExit(SUCCESS)
 
 

@@ -21,6 +21,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from config.constants.filestorage import (
+    DEFAULT_REMOTE_SYNC_PREFIX,
+    DEFAULT_REMOTE_SYNC_PROVIDER,
+)
 from config.scope_context import current_scope
 from platform.filestorage.config import RemoteSyncConfig, load_remote_sync_config
 from platform.filestorage.engine import SyncReport, resolve_direction, run_sync
@@ -115,9 +119,45 @@ def run_remote_sync(
     return _owned_report(run_sync(store, direction=resolved, roots=roots))
 
 
+def write_remote_sync_config(
+    *,
+    provider: str,
+    bucket: str,
+    prefix: str,
+    region: str,
+    profile: str,
+) -> None:
+    """Persist connection settings to the ``remote_sync`` section.
+
+    Writes only ``provider``/``bucket``/``prefix``/``region``/``profile`` —
+    never ``enabled``. Naming a bucket must not itself turn sync on, so a
+    ``setup`` run stages the destination and the switch stays a separate,
+    explicit step (``OPENSRE_REMOTE_SYNC=1`` or the ``enabled`` key).
+
+    Refuses an org-scoped turn for the same reason ``get_sync_status``/
+    ``run_remote_sync`` do: object keys carry no principal, so configuring a
+    shared destination is part of the same "org sync" boundary even though
+    this never touches an ObjectStore itself.
+    """
+    _refuse_org_scoped_turn()
+    from config.local_settings import update_section
+
+    update_section(
+        "remote_sync",
+        {
+            "provider": provider.strip().lower() or DEFAULT_REMOTE_SYNC_PROVIDER,
+            "bucket": bucket.strip(),
+            "prefix": prefix.strip() or DEFAULT_REMOTE_SYNC_PREFIX,
+            "region": region.strip(),
+            "profile": profile.strip(),
+        },
+    )
+
+
 __all__ = [
     "SyncRootStatus",
     "SyncStatus",
     "get_sync_status",
     "run_remote_sync",
+    "write_remote_sync_config",
 ]

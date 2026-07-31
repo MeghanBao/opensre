@@ -102,7 +102,7 @@ def test_sync_error_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
     console, buf = _capture()
     assert dispatch_slash("/remote-sync sync --pull-only --push-only", Session(), console) is True
     out = buf.getvalue()
-    assert "Sync failed" in out
+    assert "Command failed" in out
     # This handler also serves gateway chat, so provider detail must not appear.
     assert "bad flags" not in out, "error detail reached the chat reply"
 
@@ -135,7 +135,7 @@ def test_slash_command_metadata_for_planner() -> None:
     cmd = SLASH_COMMANDS["/remote-sync"]
     assert cmd.first_arg_completions is not None
     labels = {label for label, _hint in cmd.first_arg_completions}
-    assert labels == {"status", "sync"}
+    assert labels == {"status", "sync", "setup"}
     assert any("OPENSRE_REMOTE_SYNC" in note for note in (cmd.notes or ()))
     catalog = MCP_BY_COMMAND["/remote-sync"]
     assert "status" in catalog.llm_description
@@ -170,3 +170,75 @@ def test_repl_and_headless_dispatch_same_command_object() -> None:
     assert repl.command_exists("/remote-sync")
     assert headless.command_exists("/remote-sync")
     assert SLASH_COMMANDS["/remote-sync"].handler is not None
+
+
+def test_setup_prompts_and_writes_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = iter(["aws", "my-bucket", "opensre", "", ""])
+    captured: dict[str, str] = {}
+
+    def _capture_write(**kwargs: str) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        _capture_write,
+    )
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    assert captured == {
+        "provider": "aws",
+        "bucket": "my-bucket",
+        "prefix": "opensre",
+        "region": "",
+        "profile": "",
+    }
+    out = buf.getvalue()
+    assert "Saved remote-sync settings" in out
+    assert "enable syncing" in out
+
+
+def test_setup_uses_defaults_on_blank_provider_and_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answers = iter(["", "my-bucket", "", "us-east-1", "work"])
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    console, _buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    assert captured["provider"] == "aws"
+    assert captured["prefix"] == "opensre"
+    assert captured["region"] == "us-east-1"
+    assert captured["profile"] == "work"
+
+
+def test_setup_failure_shows_generic_message_not_exception_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """External surface (gateway chat shares this handler): never leak str(exc)."""
+
+    def _boom(**_kwargs: str) -> None:
+        raise RemoteSyncConfigError("SECRET-INTERNAL-DETAIL should never reach chat")
+
+    answers = iter(["aws", "my-bucket", "opensre", "", ""])
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        _boom,
+    )
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    out = buf.getvalue()
+    assert "SECRET-INTERNAL-DETAIL" not in out
+    assert "Command failed" in out

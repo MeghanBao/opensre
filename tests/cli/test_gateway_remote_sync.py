@@ -160,5 +160,5 @@ def test_gateway_dispatch_sync_error_stays_handled(monkeypatch: pytest.MonkeyPat
         is True
     )
     out = buf.getvalue()
-    assert "Sync failed" in out
+    assert "Command failed" in out
     assert leaked not in out, "provider detail reached the gateway reply"

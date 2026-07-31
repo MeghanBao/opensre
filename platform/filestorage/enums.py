@@ -40,6 +40,7 @@ class RemoteSyncSubcommand(StrEnum):
 
     STATUS = "status"
     SYNC = "sync"
+    SETUP = "setup"
 
 
 __all__ = [

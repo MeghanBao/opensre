@@ -969,7 +969,7 @@ def test_write_remote_sync_config_persists_the_five_fields(
         profile="work",
     )
 
-    # Assert: normalized values landed, and "enabled" was never written.
+    # Assert: normalized values landed, and sync stays explicitly off.
     section = read_section("remote_sync")
     assert section == {
         "provider": "aws",
@@ -977,8 +977,8 @@ def test_write_remote_sync_config_persists_the_five_fields(
         "prefix": "opensre",
         "region": "us-east-1",
         "profile": "work",
+        "enabled": False,
     }
-    assert "enabled" not in section
 
 
 def test_write_remote_sync_config_round_trips_once_enabled_separately(
@@ -987,11 +987,23 @@ def test_write_remote_sync_config_round_trips_once_enabled_separately(
     """Naming a bucket alone must not enable sync; the switch stays separate."""
     # Arrange
     from config.constants import paths
+    from config.constants.filestorage import (
+        REMOTE_SYNC_PROFILE_ENV,
+        REMOTE_SYNC_PROVIDER_ENV,
+        REMOTE_SYNC_REGION_ENV,
+    )
     from config.local_settings import update_section
     from platform.filestorage.operations import write_remote_sync_config
 
     monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
-    for name in (REMOTE_SYNC_ENV, REMOTE_SYNC_BUCKET_ENV, REMOTE_SYNC_PREFIX_ENV):
+    for name in (
+        REMOTE_SYNC_ENV,
+        REMOTE_SYNC_BUCKET_ENV,
+        REMOTE_SYNC_PREFIX_ENV,
+        REMOTE_SYNC_PROVIDER_ENV,
+        REMOTE_SYNC_REGION_ENV,
+        REMOTE_SYNC_PROFILE_ENV,
+    ):
         monkeypatch.delenv(name, raising=False)
 
     # Act: setup alone must not turn sync on.
@@ -1044,6 +1056,51 @@ def test_write_remote_sync_config_rejects_empty_bucket(
     with pytest.raises(RemoteSyncConfigError, match="non-empty bucket"):
         write_remote_sync_config(
             provider="aws", bucket="   ", prefix="opensre", region="", profile=""
+        )
+
+    # Nothing was written.
+    assert read_section("remote_sync") == {}
+
+
+def test_write_remote_sync_config_turns_off_a_previously_enabled_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Redirecting a destination must not leave an old ``enabled: true`` active."""
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import read_section, update_section
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+    update_section("remote_sync", {"provider": "aws", "bucket": "old-bucket", "enabled": True})
+
+    # Act: rerun setup to point somewhere else.
+    write_remote_sync_config(
+        provider="aws", bucket="new-bucket", prefix="opensre", region="", profile=""
+    )
+
+    # Assert: the new, unverified destination is staged but not live.
+    section = read_section("remote_sync")
+    assert section["bucket"] == "new-bucket"
+    assert section["enabled"] is False
+
+
+def test_write_remote_sync_config_rejects_unknown_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unsupported provider must fail at setup, not later at sync time."""
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import read_section
+    from platform.filestorage.errors import RemoteSyncConfigError
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+
+    # Act / Assert
+    with pytest.raises(RemoteSyncConfigError, match="unknown remote-sync provider"):
+        write_remote_sync_config(
+            provider="azure-typo", bucket="my-bucket", prefix="opensre", region="", profile=""
         )
 
     # Nothing was written.

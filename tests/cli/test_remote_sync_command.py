@@ -285,3 +285,20 @@ def test_setup_reports_unwritable_settings_location_cleanly(
     # with an unhandled traceback instead of the command's normal error path.
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "could not write" in result.output
+
+
+def test_setup_rejects_an_unregistered_provider(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unsupported provider must fail at setup, not later at sync time."""
+    from config.constants import paths as paths_mod
+
+    monkeypatch.setattr(paths_mod, "OPENSRE_HOME_DIR", tmp_path)
+
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="azure-typo\nmy-bucket\nopensre\n\n\n",
+    )
+    assert result.exit_code != 0
+    assert "unknown remote-sync provider" in result.output

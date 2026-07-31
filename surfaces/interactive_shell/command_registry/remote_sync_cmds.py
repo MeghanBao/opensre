@@ -31,6 +31,24 @@ _USAGE = (
     f"/remote-sync [{RemoteSyncSubcommand.STATUS}|{RemoteSyncSubcommand.SYNC}"
     f"|{RemoteSyncSubcommand.SETUP}] [--pull-only|--push-only]"
 )
+_SETUP_USAGE = (
+    f"/remote-sync {RemoteSyncSubcommand.SETUP} --bucket <name> "
+    "[--provider ...] [--prefix ...] [--region ...] [--profile ...]"
+)
+_SETUP_FLAGS = {
+    "--provider": "provider",
+    "--bucket": "bucket",
+    "--prefix": "prefix",
+    "--region": "region",
+    "--profile": "profile",
+}
+_SETUP_PROMPTS: tuple[tuple[str, str], ...] = (
+    ("provider", f"Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> "),
+    ("bucket", "Bucket> "),
+    ("prefix", f"Prefix [{DEFAULT_REMOTE_SYNC_PREFIX}]> "),
+    ("region", "Region (optional)> "),
+    ("profile", "Profile (optional)> "),
+)
 
 
 def _print_lines(
@@ -80,30 +98,56 @@ def _prompt(console: Console, text: str) -> str | None:
         return None
 
 
-def _run_setup(console: Console) -> bool:
-    if not repl_tty_interactive():
-        # Gateway/headless callers have no real stdin: console.input() would
-        # block or raise EOFError instead of returning a usable turn.
-        console.print(
-            f"[{DIM}]usage:[/] /remote-sync setup requires an interactive terminal. "
-            "Run [bold]opensre remote-sync setup[/bold] locally instead."
-        )
-        return True
-    console.print("Configure remote-sync connection settings (does not enable or verify it).")
-    provider = _prompt(console, f"[{HIGHLIGHT}]Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> [/]")
-    bucket = _prompt(console, f"[{HIGHLIGHT}]Bucket> [/]")
-    prefix = _prompt(console, f"[{HIGHLIGHT}]Prefix [{DEFAULT_REMOTE_SYNC_PREFIX}]> [/]")
-    region = _prompt(console, f"[{HIGHLIGHT}]Region (optional)> [/]")
-    profile = _prompt(console, f"[{HIGHLIGHT}]Profile (optional)> [/]")
-    if None in (provider, bucket, prefix, region, profile):
-        console.print(f"[{DIM}]Setup cancelled.[/]")
+def _parse_setup_flags(args: list[str]) -> dict[str, str]:
+    """``--key value`` pairs for headless/gateway callers with no real stdin."""
+    values: dict[str, str] = {}
+    index = 0
+    while index < len(args) - 1:
+        key = _SETUP_FLAGS.get(args[index].lower())
+        if key is not None:
+            values[key] = args[index + 1]
+            index += 2
+        else:
+            index += 1
+    return values
+
+
+def _prompt_setup_interactively(console: Console) -> dict[str, str] | None:
+    """Ask each field in turn. ``None`` means the user cancelled partway through."""
+    answers: dict[str, str] = {}
+    for key, label in _SETUP_PROMPTS:
+        value = _prompt(console, f"[{HIGHLIGHT}]{label}[/]")
+        if value is None:
+            return None
+        answers[key] = value
+    return answers
+
+
+def _run_setup(console: Console, args: list[str]) -> bool:
+    flags = _parse_setup_flags(args)
+    answers: dict[str, str] | None
+    if flags:
+        if "bucket" not in flags:
+            console.print(f"[{ERROR}]--bucket is required.[/] usage: {_SETUP_USAGE}")
+            return True
+        answers = flags
+    elif repl_tty_interactive():
+        console.print("Configure remote-sync connection settings (does not enable or verify it).")
+        answers = _prompt_setup_interactively(console)
+        if answers is None:
+            console.print(f"[{DIM}]Setup cancelled.[/]")
+            return True
+    else:
+        # No flags and no real stdin: console.input() would block or raise
+        # EOFError instead of returning a usable turn.
+        console.print(f"[{DIM}]usage:[/] {_SETUP_USAGE}")
         return True
     write_remote_sync_config(
-        provider=provider or DEFAULT_REMOTE_SYNC_PROVIDER,
-        bucket=bucket or "",
-        prefix=prefix or DEFAULT_REMOTE_SYNC_PREFIX,
-        region=region or "",
-        profile=profile or "",
+        provider=answers.get("provider") or DEFAULT_REMOTE_SYNC_PROVIDER,
+        bucket=answers.get("bucket", ""),
+        prefix=answers.get("prefix") or DEFAULT_REMOTE_SYNC_PREFIX,
+        region=answers.get("region", ""),
+        profile=answers.get("profile", ""),
     )
     console.print(f"Saved remote-sync settings to [{HIGHLIGHT}]{local_settings_path()}[/].")
     console.print(f"[{DIM}]Set {REMOTE_SYNC_ENV}=1 to enable syncing.[/]")
@@ -126,7 +170,7 @@ def _cmd_remote_sync(_session: Session, console: Console, args: list[str]) -> bo
         if sub is RemoteSyncSubcommand.SYNC:
             return _run_sync(console, args[1:])
         if sub is RemoteSyncSubcommand.SETUP:
-            return _run_setup(console)
+            return _run_setup(console, args[1:])
     except OrgScopeNotSupportedError as exc:
         # Safe to show: our own wording, no vendor or credential detail.
         console.print(f"[{DIM}]{exc}[/]")
@@ -170,7 +214,8 @@ COMMANDS: tuple[SlashCommand, ...] = (
             (RemoteSyncSubcommand.SYNC.value, "pull remote changes, then push local ones"),
             (
                 RemoteSyncSubcommand.SETUP.value,
-                "configure provider/bucket/prefix/region/profile (does not enable it)",
+                "configure provider/bucket/prefix/region/profile via --flags, or "
+                "prompts in a real terminal (does not enable it)",
             ),
         ),
         use_cases=(

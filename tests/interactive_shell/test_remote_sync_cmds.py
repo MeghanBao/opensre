@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from config.constants.filestorage import DEFAULT_REMOTE_SYNC_PREFIX
 from platform.filestorage.config import RemoteSyncConfig
 from platform.filestorage.engine import SyncReport
 from platform.filestorage.enums import SyncRootName
@@ -259,7 +260,7 @@ def test_setup_failure_shows_generic_message_not_exception_detail(
 def test_setup_refuses_headless_dispatch_without_prompting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Gateway/headless callers have no real stdin; setup must not call console.input()."""
+    """Headless callers with no flags get usage text; setup must not call console.input()."""
     monkeypatch.setattr(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
         lambda: False,
@@ -274,8 +275,63 @@ def test_setup_refuses_headless_dispatch_without_prompting(
     assert dispatch_slash("/remote-sync setup", Session(), console) is True
 
     out = " ".join(buf.getvalue().split())
-    assert "interactive terminal" in out
-    assert "opensre remote-sync setup" in out
+    assert "usage" in out
+    assert "--bucket" in out
+
+
+def test_setup_headless_dispatch_with_flags_writes_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gateway/headless callers configure setup via flags, without any prompting."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: False,
+    )
+    captured: dict[str, str] = {}
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    def _fail_if_called(_prompt: str) -> str:
+        raise AssertionError("console.input() must not be called when flags are given")
+
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", _fail_if_called)
+
+    assert (
+        dispatch_slash(
+            "/remote-sync setup --provider aws --bucket my-bucket --region us-east-1",
+            Session(),
+            console,
+        )
+        is True
+    )
+
+    assert captured == {
+        "provider": "aws",
+        "bucket": "my-bucket",
+        "prefix": DEFAULT_REMOTE_SYNC_PREFIX,
+        "region": "us-east-1",
+        "profile": "",
+    }
+    assert "Saved remote-sync settings" in buf.getvalue()
+
+
+def test_setup_headless_dispatch_without_bucket_flag_shows_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A flag other than --bucket alone must not be treated as a complete setup."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: False,
+    )
+    console, buf = _capture()
+
+    assert dispatch_slash("/remote-sync setup --provider aws", Session(), console) is True
+
+    out = buf.getvalue()
+    assert "--bucket is required" in out
 
 
 def test_setup_rejects_empty_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -360,4 +416,26 @@ def test_setup_cancelled_on_eof_does_not_error(monkeypatch: pytest.MonkeyPatch) 
     assert dispatch_slash("/remote-sync setup", Session(), console) is True
 
     assert write_called is False
+    assert "Setup cancelled" in buf.getvalue()
+
+
+def test_setup_cancellation_stops_at_the_first_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ctrl-D on the first prompt must not still ask the remaining four."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
+    calls = 0
+
+    def _input(_prompt: str) -> str:
+        nonlocal calls
+        calls += 1
+        raise EOFError
+
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", _input)
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    assert calls == 1
     assert "Setup cancelled" in buf.getvalue()

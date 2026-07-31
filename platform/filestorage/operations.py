@@ -30,7 +30,7 @@ from platform.filestorage.config import RemoteSyncConfig, load_remote_sync_confi
 from platform.filestorage.engine import SyncReport, resolve_direction, run_sync
 from platform.filestorage.enums import SyncDirection, SyncRootName
 from platform.filestorage.errors import OrgScopeNotSupportedError, RemoteSyncConfigError
-from platform.filestorage.providers import build_object_store
+from platform.filestorage.providers import build_object_store, registered_providers
 from platform.filestorage.syncable import syncable_roots
 
 
@@ -129,10 +129,13 @@ def write_remote_sync_config(
 ) -> None:
     """Persist connection settings to the ``remote_sync`` section.
 
-    Writes only ``provider``/``bucket``/``prefix``/``region``/``profile`` —
-    never ``enabled``. Naming a bucket must not itself turn sync on, so a
-    ``setup`` run stages the destination and the switch stays a separate,
-    explicit step (``OPENSRE_REMOTE_SYNC=1`` or the ``enabled`` key).
+    Always writes ``enabled: false`` alongside the connection fields, even
+    when a destination was already configured and enabled. Redirecting an
+    active sync to a new, unverified destination as a side effect of staging
+    settings would defeat the point of a separate, explicit switch
+    (``OPENSRE_REMOTE_SYNC=1`` or a later confirmation step) — so every
+    ``setup`` run leaves sync off, whether it was off, on, or pointed
+    somewhere else beforehand.
 
     Refuses an org-scoped turn for the same reason ``get_sync_status``/
     ``run_remote_sync`` do: object keys carry no principal, so configuring a
@@ -140,25 +143,36 @@ def write_remote_sync_config(
     this never touches an ObjectStore itself.
 
     Raises:
-        RemoteSyncConfigError: ``bucket`` is blank. An empty bucket would
-            silently report success while leaving an unusable config that
-            ``load_remote_sync_config`` rejects the moment sync is enabled.
+        RemoteSyncConfigError: ``bucket`` is blank, or ``provider`` is not a
+            registered backend. An empty bucket would silently report success
+            while leaving an unusable config that ``load_remote_sync_config``
+            rejects the moment sync is enabled; an unknown provider would
+            report success and only fail later, at sync time.
     """
     _refuse_org_scoped_turn()
     bucket = bucket.strip()
     if not bucket:
         raise RemoteSyncConfigError("remote-sync setup requires a non-empty bucket")
 
+    normalized_provider = provider.strip().lower() or DEFAULT_REMOTE_SYNC_PROVIDER
+    known = registered_providers()
+    if normalized_provider not in known:
+        listed = ", ".join(known) or "(none)"
+        raise RemoteSyncConfigError(
+            f"unknown remote-sync provider {normalized_provider!r}; known: {listed}"
+        )
+
     from config.local_settings import update_section
 
     update_section(
         "remote_sync",
         {
-            "provider": provider.strip().lower() or DEFAULT_REMOTE_SYNC_PROVIDER,
+            "provider": normalized_provider,
             "bucket": bucket,
             "prefix": prefix.strip() or DEFAULT_REMOTE_SYNC_PREFIX,
             "region": region.strip(),
             "profile": profile.strip(),
+            "enabled": False,
         },
     )
 

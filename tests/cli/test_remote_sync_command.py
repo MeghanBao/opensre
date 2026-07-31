@@ -263,3 +263,25 @@ def test_remote_sync_help_lists_setup(runner: CliRunner) -> None:
     result = runner.invoke(remote_sync_command, ["--help"])
     assert result.exit_code == 0
     assert RemoteSyncSubcommand.SETUP in result.output
+
+
+def test_setup_reports_unwritable_settings_location_cleanly(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A real filesystem failure (not a mock) must exit cleanly, not with a traceback."""
+    from config.constants import paths as paths_mod
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(paths_mod, "OPENSRE_HOME_DIR", blocker / "home")
+
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="aws\nmy-bucket\nopensre\n\n\n",
+    )
+    assert result.exit_code != 0
+    # A handled failure exits via SystemExit; anything else means it crashed
+    # with an unhandled traceback instead of the command's normal error path.
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "could not write" in result.output

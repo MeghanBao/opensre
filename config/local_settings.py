@@ -53,11 +53,14 @@ def read_section(name: str) -> dict[str, Any]:
 
 
 def save_local_settings(data: dict[str, Any]) -> None:
-    import yaml
-
     path = local_settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    try:
+        import yaml
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    except OSError as exc:
+        raise LocalSettingsError(f"could not write {path}: {exc}") from exc
 
 
 def update_section(name: str, values: dict[str, Any]) -> None:

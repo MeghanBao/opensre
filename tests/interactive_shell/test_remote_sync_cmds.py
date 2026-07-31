@@ -299,3 +299,65 @@ def test_setup_rejects_empty_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     out = buf.getvalue()
     assert "Command failed" in out
     assert "Saved remote-sync settings" not in out
+
+
+def test_setup_reports_unwritable_settings_location_cleanly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A real filesystem failure (not a mock) must not leak into the chat reply."""
+    from config.constants import paths as paths_mod
+    from platform.filestorage.operations import write_remote_sync_config
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(paths_mod, "OPENSRE_HOME_DIR", blocker / "home")
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        write_remote_sync_config,
+    )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
+    answers = iter(["aws", "my-bucket", "opensre", "", ""])
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    out = buf.getvalue()
+    assert "Command failed" in out
+    assert "not a directory" not in out
+
+
+def test_setup_cancelled_on_eof_does_not_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ctrl-D at any prompt is a normal cancellation, not a turn error."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
+    write_called = False
+
+    def _fail_if_called(**_kwargs: str) -> None:
+        nonlocal write_called
+        write_called = True
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        _fail_if_called,
+    )
+    answers = iter(["aws", "my-bucket"])
+
+    def _input(_prompt: str) -> str:
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", _input)
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    assert write_called is False
+    assert "Setup cancelled" in buf.getvalue()

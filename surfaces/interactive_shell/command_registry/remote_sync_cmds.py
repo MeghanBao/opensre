@@ -72,6 +72,14 @@ def _run_sync(console: Console, args: list[str]) -> bool:
     return True
 
 
+def _prompt(console: Console, text: str) -> str | None:
+    """One setup prompt. ``None`` means the user cancelled (Ctrl-D/Ctrl-C)."""
+    try:
+        return console.input(text).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
 def _run_setup(console: Console) -> bool:
     if not repl_tty_interactive():
         # Gateway/headless callers have no real stdin: console.input() would
@@ -82,19 +90,20 @@ def _run_setup(console: Console) -> bool:
         )
         return True
     console.print("Configure remote-sync connection settings (does not enable or verify it).")
-    provider = (
-        console.input(f"[{HIGHLIGHT}]Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> [/]").strip()
-        or DEFAULT_REMOTE_SYNC_PROVIDER
-    )
-    bucket = console.input(f"[{HIGHLIGHT}]Bucket> [/]").strip()
-    prefix = (
-        console.input(f"[{HIGHLIGHT}]Prefix [{DEFAULT_REMOTE_SYNC_PREFIX}]> [/]").strip()
-        or DEFAULT_REMOTE_SYNC_PREFIX
-    )
-    region = console.input(f"[{HIGHLIGHT}]Region (optional)> [/]").strip()
-    profile = console.input(f"[{HIGHLIGHT}]Profile (optional)> [/]").strip()
+    provider = _prompt(console, f"[{HIGHLIGHT}]Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> [/]")
+    bucket = _prompt(console, f"[{HIGHLIGHT}]Bucket> [/]")
+    prefix = _prompt(console, f"[{HIGHLIGHT}]Prefix [{DEFAULT_REMOTE_SYNC_PREFIX}]> [/]")
+    region = _prompt(console, f"[{HIGHLIGHT}]Region (optional)> [/]")
+    profile = _prompt(console, f"[{HIGHLIGHT}]Profile (optional)> [/]")
+    if None in (provider, bucket, prefix, region, profile):
+        console.print(f"[{DIM}]Setup cancelled.[/]")
+        return True
     write_remote_sync_config(
-        provider=provider, bucket=bucket, prefix=prefix, region=region, profile=profile
+        provider=provider or DEFAULT_REMOTE_SYNC_PROVIDER,
+        bucket=bucket or "",
+        prefix=prefix or DEFAULT_REMOTE_SYNC_PREFIX,
+        region=region or "",
+        profile=profile or "",
     )
     console.print(f"Saved remote-sync settings to [{HIGHLIGHT}]{local_settings_path()}[/].")
     console.print(f"[{DIM}]Set {REMOTE_SYNC_ENV}=1 to enable syncing.[/]")

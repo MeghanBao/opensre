@@ -132,10 +132,17 @@ def write_remote_sync_config(
     Always writes ``enabled: false`` alongside the connection fields, even
     when a destination was already configured and enabled. Redirecting an
     active sync to a new, unverified destination as a side effect of staging
-    settings would defeat the point of a separate, explicit switch
-    (``OPENSRE_REMOTE_SYNC=1`` or a later confirmation step) — so every
-    ``setup`` run leaves sync off, whether it was off, on, or pointed
-    somewhere else beforehand.
+    settings would defeat the point of a separate, explicit switch — so every
+    ``setup`` run turns off the *stored* switch, whether it was off, on, or
+    pointed somewhere else beforehand.
+
+    This only controls the stored section, the one thing this function can
+    see: ``OPENSRE_REMOTE_SYNC`` in the environment still overrides it per
+    :func:`platform.filestorage.config.remote_sync_enabled`'s precedence
+    rule, exactly as it would for any other stored setting. A caller that
+    wants to warn the operator when the environment is what is actually
+    keeping sync on should check ``remote_sync_enabled()`` itself after this
+    call returns; the CLI and slash surfaces both do.
 
     Refuses an org-scoped turn for the same reason ``get_sync_status``/
     ``run_remote_sync`` do: object keys carry no principal, so configuring a

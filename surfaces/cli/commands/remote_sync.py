@@ -11,7 +11,7 @@ from config.constants.filestorage import (
 )
 from config.local_settings import LocalSettingsError, local_settings_path
 from platform.common.exit_codes import ERROR, SUCCESS
-from platform.filestorage import RemoteSyncError
+from platform.filestorage import RemoteSyncError, remote_sync_enabled
 from platform.filestorage.enums import RemoteSyncSubcommand
 from platform.filestorage.messages import (
     DISABLED_HELP,
@@ -62,7 +62,13 @@ def setup_command() -> None:
         click.echo(str(exc), err=True)
         raise SystemExit(ERROR) from exc
     click.echo(f"Saved remote-sync settings to {local_settings_path()}.")
-    click.echo(f"Set {REMOTE_SYNC_ENV}=1 to enable syncing.")
+    if remote_sync_enabled():
+        click.echo(
+            f"Warning: {REMOTE_SYNC_ENV} is already set in your environment, so this "
+            "destination is active immediately."
+        )
+    else:
+        click.echo(f"Set {REMOTE_SYNC_ENV}=1 to enable syncing.")
     raise SystemExit(SUCCESS)
 
 

@@ -12,7 +12,7 @@ from config.constants.filestorage import (
     REMOTE_SYNC_ENV,
 )
 from config.local_settings import LocalSettingsError, local_settings_path
-from platform.filestorage import OrgScopeNotSupportedError, RemoteSyncError
+from platform.filestorage import OrgScopeNotSupportedError, RemoteSyncError, remote_sync_enabled
 from platform.filestorage.enums import RemoteSyncSubcommand
 from platform.filestorage.messages import DISABLED_HELP, format_report_lines
 from platform.filestorage.operations import (
@@ -98,17 +98,26 @@ def _prompt(console: Console, text: str) -> str | None:
         return None
 
 
-def _parse_setup_flags(args: list[str]) -> dict[str, str]:
-    """``--key value`` pairs for headless/gateway callers with no real stdin."""
+def _parse_setup_flags(args: list[str]) -> dict[str, str] | None:
+    """``--key value`` pairs for headless/gateway callers with no real stdin.
+
+    ``None`` means a recognized flag was malformed — missing its value
+    entirely, or followed by what looks like another flag rather than a
+    value (``--bucket --provider aws`` must not silently save ``"--provider"``
+    as the bucket). An empty dict means no recognized flags were present at
+    all, so the caller falls back to interactive prompts or a usage message.
+    """
     values: dict[str, str] = {}
     index = 0
-    while index < len(args) - 1:
+    while index < len(args):
         key = _SETUP_FLAGS.get(args[index].lower())
-        if key is not None:
-            values[key] = args[index + 1]
-            index += 2
-        else:
+        if key is None:
             index += 1
+            continue
+        if index + 1 >= len(args) or args[index + 1].startswith("--"):
+            return None
+        values[key] = args[index + 1]
+        index += 2
     return values
 
 
@@ -125,6 +134,9 @@ def _prompt_setup_interactively(console: Console) -> dict[str, str] | None:
 
 def _run_setup(console: Console, args: list[str]) -> bool:
     flags = _parse_setup_flags(args)
+    if flags is None:
+        console.print(f"[{ERROR}]each flag needs a value.[/] usage: {_SETUP_USAGE}")
+        return True
     answers: dict[str, str] | None
     if flags:
         if "bucket" not in flags:
@@ -150,7 +162,13 @@ def _run_setup(console: Console, args: list[str]) -> bool:
         profile=answers.get("profile", ""),
     )
     console.print(f"Saved remote-sync settings to [{HIGHLIGHT}]{local_settings_path()}[/].")
-    console.print(f"[{DIM}]Set {REMOTE_SYNC_ENV}=1 to enable syncing.[/]")
+    if remote_sync_enabled():
+        console.print(
+            f"[{ERROR}]Warning:[/] {REMOTE_SYNC_ENV} is already set in your environment, "
+            "so this destination is active immediately."
+        )
+    else:
+        console.print(f"[{DIM}]Set {REMOTE_SYNC_ENV}=1 to enable syncing.[/]")
     return True
 
 

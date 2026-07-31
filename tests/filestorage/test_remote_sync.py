@@ -1085,6 +1085,34 @@ def test_write_remote_sync_config_turns_off_a_previously_enabled_sync(
     assert section["enabled"] is False
 
 
+def test_write_remote_sync_config_cannot_override_an_env_enabled_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stored ``enabled: false`` is not the whole story — env still wins.
+
+    ``write_remote_sync_config`` only controls the stored section; it cannot
+    and must not reach into the caller's environment. A surface that promises
+    "does not enable it" has to check ``remote_sync_enabled()`` itself and
+    warn when the environment variable is what is actually keeping sync live.
+    """
+    # Arrange
+    from config.constants import paths
+    from platform.filestorage.config import remote_sync_enabled
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+    monkeypatch.setenv(REMOTE_SYNC_ENV, "1")
+
+    # Act: setup still writes enabled: false to the stored section...
+    write_remote_sync_config(
+        provider="aws", bucket="new-bucket", prefix="opensre", region="", profile=""
+    )
+
+    # Assert: ...but the environment variable overrides it, exactly as
+    # documented in platform/filestorage/config.py's precedence rule.
+    assert remote_sync_enabled() is True
+
+
 def test_write_remote_sync_config_rejects_unknown_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

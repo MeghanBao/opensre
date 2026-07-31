@@ -188,6 +188,10 @@ def test_setup_prompts_and_writes_config(monkeypatch: pytest.MonkeyPatch) -> Non
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.remote_sync_enabled",
+        lambda: False,
+    )
     console, buf = _capture()
     monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
 
@@ -219,6 +223,10 @@ def test_setup_uses_defaults_on_blank_provider_and_prefix(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.remote_sync_enabled",
+        lambda: False,
+    )
     console, _buf = _capture()
     monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
 
@@ -228,6 +236,34 @@ def test_setup_uses_defaults_on_blank_provider_and_prefix(
     assert captured["prefix"] == "opensre"
     assert captured["region"] == "us-east-1"
     assert captured["profile"] == "work"
+
+
+def test_setup_warns_when_env_override_makes_new_destination_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OPENSRE_REMOTE_SYNC=1 overrides the stored enabled: false — say so."""
+    answers = iter(["aws", "my-bucket", "opensre", "", ""])
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.remote_sync_enabled",
+        lambda: True,
+    )
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    out = buf.getvalue()
+    assert "Warning" in out
+    assert "active immediately" in out
+    assert "enable syncing" not in out
 
 
 def test_setup_failure_shows_generic_message_not_exception_detail(
@@ -287,6 +323,10 @@ def test_setup_headless_dispatch_with_flags_writes_config(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
         lambda: False,
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.remote_sync_enabled",
+        lambda: False,
+    )
     captured: dict[str, str] = {}
     monkeypatch.setattr(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
@@ -332,6 +372,61 @@ def test_setup_headless_dispatch_without_bucket_flag_shows_usage(
 
     out = buf.getvalue()
     assert "--bucket is required" in out
+
+
+def test_setup_flag_missing_its_value_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dangling flag at the end must not be silently dropped."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: False,
+    )
+    write_called = False
+
+    def _fail_if_called(**_kwargs: str) -> None:
+        nonlocal write_called
+        write_called = True
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        _fail_if_called,
+    )
+    console, buf = _capture()
+
+    assert (
+        dispatch_slash("/remote-sync setup --bucket my-bucket --provider", Session(), console)
+        is True
+    )
+
+    assert write_called is False
+    assert "each flag needs a value" in buf.getvalue()
+
+
+def test_setup_flag_value_that_looks_like_a_flag_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--bucket --provider aws`` must not save "--provider" as the bucket."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: False,
+    )
+    write_called = False
+
+    def _fail_if_called(**_kwargs: str) -> None:
+        nonlocal write_called
+        write_called = True
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        _fail_if_called,
+    )
+    console, buf = _capture()
+
+    assert (
+        dispatch_slash("/remote-sync setup --bucket --provider aws", Session(), console) is True
+    )
+
+    assert write_called is False
+    assert "each flag needs a value" in buf.getvalue()
 
 
 def test_setup_rejects_empty_bucket(monkeypatch: pytest.MonkeyPatch) -> None:

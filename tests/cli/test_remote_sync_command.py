@@ -192,6 +192,7 @@ def test_setup_prompts_and_writes_config(
         "surfaces.cli.commands.remote_sync.write_remote_sync_config",
         lambda **kwargs: captured.update(kwargs),
     )
+    monkeypatch.setattr("surfaces.cli.commands.remote_sync.remote_sync_enabled", lambda: False)
     result = runner.invoke(
         remote_sync_command,
         ["setup"],
@@ -209,6 +210,26 @@ def test_setup_prompts_and_writes_config(
     assert "enable syncing" in result.output
 
 
+def test_setup_warns_when_env_override_makes_new_destination_active(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OPENSRE_REMOTE_SYNC=1 overrides the stored enabled: false — say so."""
+    monkeypatch.setattr(
+        "surfaces.cli.commands.remote_sync.write_remote_sync_config",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr("surfaces.cli.commands.remote_sync.remote_sync_enabled", lambda: True)
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        input="aws\nmy-bucket\nopensre\n\n\n",
+    )
+    assert result.exit_code == 0
+    assert "Warning" in result.output
+    assert "active immediately" in result.output
+    assert "enable syncing" not in result.output
+
+
 def test_setup_uses_defaults_on_blank_provider_and_prefix(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -218,6 +239,7 @@ def test_setup_uses_defaults_on_blank_provider_and_prefix(
         "surfaces.cli.commands.remote_sync.write_remote_sync_config",
         lambda **kwargs: captured.update(kwargs),
     )
+    monkeypatch.setattr("surfaces.cli.commands.remote_sync.remote_sync_enabled", lambda: False)
     result = runner.invoke(
         remote_sync_command,
         ["setup"],

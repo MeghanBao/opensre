@@ -421,9 +421,7 @@ def test_setup_flag_value_that_looks_like_a_flag_is_rejected(
     )
     console, buf = _capture()
 
-    assert (
-        dispatch_slash("/remote-sync setup --bucket --provider aws", Session(), console) is True
-    )
+    assert dispatch_slash("/remote-sync setup --bucket --provider aws", Session(), console) is True
 
     assert write_called is False
     assert "each flag needs a value" in buf.getvalue()

@@ -29,7 +29,7 @@ from config.scope_context import current_scope
 from platform.filestorage.config import RemoteSyncConfig, load_remote_sync_config
 from platform.filestorage.engine import SyncReport, resolve_direction, run_sync
 from platform.filestorage.enums import SyncDirection, SyncRootName
-from platform.filestorage.errors import OrgScopeNotSupportedError
+from platform.filestorage.errors import OrgScopeNotSupportedError, RemoteSyncConfigError
 from platform.filestorage.providers import build_object_store
 from platform.filestorage.syncable import syncable_roots
 
@@ -138,15 +138,24 @@ def write_remote_sync_config(
     ``run_remote_sync`` do: object keys carry no principal, so configuring a
     shared destination is part of the same "org sync" boundary even though
     this never touches an ObjectStore itself.
+
+    Raises:
+        RemoteSyncConfigError: ``bucket`` is blank. An empty bucket would
+            silently report success while leaving an unusable config that
+            ``load_remote_sync_config`` rejects the moment sync is enabled.
     """
     _refuse_org_scoped_turn()
+    bucket = bucket.strip()
+    if not bucket:
+        raise RemoteSyncConfigError("remote-sync setup requires a non-empty bucket")
+
     from config.local_settings import update_section
 
     update_section(
         "remote_sync",
         {
             "provider": provider.strip().lower() or DEFAULT_REMOTE_SYNC_PROVIDER,
-            "bucket": bucket.strip(),
+            "bucket": bucket,
             "prefix": prefix.strip() or DEFAULT_REMOTE_SYNC_PREFIX,
             "region": region.strip(),
             "profile": profile.strip(),

@@ -1026,3 +1026,25 @@ def test_write_remote_sync_config_defaults_blank_provider_and_prefix(
     section = read_section("remote_sync")
     assert section["provider"] == DEFAULT_REMOTE_SYNC_PROVIDER
     assert section["prefix"] == DEFAULT_REMOTE_SYNC_PREFIX
+
+
+def test_write_remote_sync_config_rejects_empty_bucket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty bucket must not silently save a config load_remote_sync_config rejects."""
+    # Arrange
+    from config.constants import paths
+    from config.local_settings import read_section
+    from platform.filestorage.errors import RemoteSyncConfigError
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path)
+
+    # Act / Assert
+    with pytest.raises(RemoteSyncConfigError, match="non-empty bucket"):
+        write_remote_sync_config(
+            provider="aws", bucket="   ", prefix="opensre", region="", profile=""
+        )
+
+    # Nothing was written.
+    assert read_section("remote_sync") == {}

@@ -183,6 +183,10 @@ def test_setup_prompts_and_writes_config(monkeypatch: pytest.MonkeyPatch) -> Non
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
         _capture_write,
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
     console, buf = _capture()
     monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
 
@@ -210,6 +214,10 @@ def test_setup_uses_defaults_on_blank_provider_and_prefix(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
         lambda **kwargs: captured.update(kwargs),
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
     console, _buf = _capture()
     monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
 
@@ -234,6 +242,10 @@ def test_setup_failure_shows_generic_message_not_exception_detail(
         "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
         _boom,
     )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
     console, buf = _capture()
     monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
 
@@ -242,3 +254,48 @@ def test_setup_failure_shows_generic_message_not_exception_detail(
     out = buf.getvalue()
     assert "SECRET-INTERNAL-DETAIL" not in out
     assert "Command failed" in out
+
+
+def test_setup_refuses_headless_dispatch_without_prompting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gateway/headless callers have no real stdin; setup must not call console.input()."""
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: False,
+    )
+
+    def _fail_if_called(_prompt: str) -> str:
+        raise AssertionError("console.input() must not be called in a headless turn")
+
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", _fail_if_called)
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    out = " ".join(buf.getvalue().split())
+    assert "interactive terminal" in out
+    assert "opensre remote-sync setup" in out
+
+
+def test_setup_rejects_empty_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty bucket must not silently save a config the sync loader rejects."""
+    from platform.filestorage.operations import write_remote_sync_config
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.write_remote_sync_config",
+        write_remote_sync_config,
+    )
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.command_registry.remote_sync_cmds.repl_tty_interactive",
+        lambda: True,
+    )
+    answers = iter(["aws", "", "opensre", "", ""])
+    console, buf = _capture()
+    monkeypatch.setattr(console, "input", lambda _prompt: next(answers))
+
+    assert dispatch_slash("/remote-sync setup", Session(), console) is True
+
+    out = buf.getvalue()
+    assert "Command failed" in out
+    assert "Saved remote-sync settings" not in out

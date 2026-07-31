@@ -247,6 +247,18 @@ def test_setup_failure_exits_nonzero(runner: CliRunner, monkeypatch: pytest.Monk
     assert "could not write settings" in result.output
 
 
+def test_setup_reprompts_for_bucket_on_blank_input(runner: CliRunner) -> None:
+    """click.prompt (no default) re-asks rather than accepting an empty bucket."""
+    result = runner.invoke(
+        remote_sync_command,
+        ["setup"],
+        # Blank line for Bucket the first time; Click must ask again rather
+        # than proceed with an empty value.
+        input="aws\n\n",
+    )
+    assert result.output.count("Bucket:") >= 2
+
+
 def test_remote_sync_help_lists_setup(runner: CliRunner) -> None:
     result = runner.invoke(remote_sync_command, ["--help"])
     assert result.exit_code == 0

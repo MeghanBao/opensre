@@ -23,6 +23,7 @@ from platform.filestorage.operations import (
 from surfaces.interactive_shell.command_registry.types import SlashCommand
 from surfaces.interactive_shell.runtime import Session
 from surfaces.interactive_shell.ui import DIM, ERROR, HIGHLIGHT
+from surfaces.interactive_shell.ui.components.choice_menu import repl_tty_interactive
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,14 @@ def _run_sync(console: Console, args: list[str]) -> bool:
 
 
 def _run_setup(console: Console) -> bool:
+    if not repl_tty_interactive():
+        # Gateway/headless callers have no real stdin: console.input() would
+        # block or raise EOFError instead of returning a usable turn.
+        console.print(
+            f"[{DIM}]usage:[/] /remote-sync setup requires an interactive terminal. "
+            "Run [bold]opensre remote-sync setup[/bold] locally instead."
+        )
+        return True
     console.print("Configure remote-sync connection settings (does not enable or verify it).")
     provider = (
         console.input(f"[{HIGHLIGHT}]Provider [{DEFAULT_REMOTE_SYNC_PROVIDER}]> [/]").strip()

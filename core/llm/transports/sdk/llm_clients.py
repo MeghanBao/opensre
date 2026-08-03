@@ -30,6 +30,7 @@ from openai import OpenAI
 from openai import RateLimitError as OpenAIRateLimitError
 from pydantic import BaseModel
 
+from config.constants.aws import BEDROCK_AWS_REGION_ENV
 from core.llm.providers import provider_credentials
 from core.llm.providers.bedrock_model_ids import is_anthropic_bedrock_model
 from core.llm.shared.llm_retry import extract_retry_after_seconds
@@ -405,20 +406,43 @@ class BedrockLLMClient:
     def __init__(
         self, *, model: str, max_tokens: int = 1024, temperature: float | None = None
     ) -> None:
+        from core.llm.transports.sdk.bedrock_converse import (
+            frozen_bedrock_credentials,
+            resolve_bedrock_aws_session,
+        )
+
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._use_anthropic = is_anthropic_bedrock_model(model)
-        self._aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+        # BEDROCK_AWS_REGION overrides for a cross-account setup; falls back to
+        # the same permissive AWS_REGION/AWS_DEFAULT_REGION/us-east-1 chain
+        # this class has always used (unlike the agent-loop Bedrock clients,
+        # this one does not require a region to be configured explicitly).
+        self._aws_region = os.getenv(
+            BEDROCK_AWS_REGION_ENV,
+            os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+        )
+        session = resolve_bedrock_aws_session()
 
         if self._use_anthropic:
-            self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(
-                aws_region=self._aws_region
-            )
+            if session is not None:
+                frozen = frozen_bedrock_credentials(session)
+                self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(
+                    aws_access_key=frozen.access_key,
+                    aws_secret_key=frozen.secret_key,
+                    aws_session_token=frozen.token,
+                    aws_region=self._aws_region,
+                )
+            else:
+                self._anthropic_client = AnthropicBedrock(aws_region=self._aws_region)
             self._boto3_client: Any = None
         else:
             self._anthropic_client = None
-            self._boto3_client = boto3.client("bedrock-runtime", region_name=self._aws_region)
+            if session is not None:
+                self._boto3_client = session.client("bedrock-runtime", region_name=self._aws_region)
+            else:
+                self._boto3_client = boto3.client("bedrock-runtime", region_name=self._aws_region)
 
     def with_config(self, **_kwargs: Any) -> BedrockLLMClient:
         return self

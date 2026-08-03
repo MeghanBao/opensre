@@ -6,23 +6,108 @@ import json
 import logging
 import os
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from config.constants.aws import (
+    BEDROCK_AWS_EXTERNAL_ID_ENV,
+    BEDROCK_AWS_PROFILE_ENV,
+    BEDROCK_AWS_REGION_ENV,
+    BEDROCK_AWS_ROLE_ARN_ENV,
+)
 from core.llm.shared.tool_schema_normalize import (
     BEDROCK_UNSUPPORTED_SCHEMA_KEYS,
     normalize_object_tool_input_schema,
     sanitize_strict_tool_schema,
 )
 
+if TYPE_CHECKING:
+    import boto3
+
 logger = logging.getLogger(__name__)
 
 
 def require_aws_region() -> str:
-    """Return configured AWS region or raise with a clear configuration error."""
-    region = (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "").strip()
+    """Return configured AWS region or raise with a clear configuration error.
+
+    ``BEDROCK_AWS_REGION`` takes precedence so a cross-account Bedrock setup
+    (see :func:`resolve_bedrock_aws_session`) can target a region independent
+    of the region investigation tools use.
+    """
+    region = (
+        os.getenv(BEDROCK_AWS_REGION_ENV)
+        or os.getenv("AWS_REGION")
+        or os.getenv("AWS_DEFAULT_REGION")
+        or ""
+    ).strip()
     if not region:
-        raise RuntimeError("Bedrock requires AWS_REGION or AWS_DEFAULT_REGION to be set.")
+        raise RuntimeError(
+            "Bedrock requires AWS_REGION, AWS_DEFAULT_REGION, or BEDROCK_AWS_REGION to be set."
+        )
     return region
+
+
+def resolve_bedrock_aws_session() -> boto3.Session | None:
+    """Isolate Bedrock's AWS identity from the ambient default credential chain.
+
+    Investigation tools (EC2, CloudWatch, ...) already work correctly across
+    accounts because they read the process's single ambient ``AWS_PROFILE``
+    directly. Bedrock had no equivalent: every Bedrock client reached for the
+    same ambient chain, so a laptop configured for a Bedrock account reachable
+    only via an AssumeRole profile in a different account than the infra being
+    investigated had no way to give Bedrock a *different* identity than
+    whatever profile was active for everything else (#4482).
+
+    ``BEDROCK_AWS_ROLE_ARN`` takes precedence — an explicit assume-role, for
+    deployments with no ``~/.aws/config`` profile file (e.g. Fargate).
+    ``BEDROCK_AWS_PROFILE`` is a named profile, which may itself be an
+    AssumeRole + source_profile pair — the shape the issue's own setup used.
+    Returns ``None`` when neither is set, so callers fall through to today's
+    exact ambient-chain behavior; this function never changes behavior for a
+    caller who hasn't opted in.
+    """
+    import boto3
+
+    role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
+    if role_arn:
+        region = require_aws_region()
+        external_id = os.getenv(BEDROCK_AWS_EXTERNAL_ID_ENV, "").strip()
+        sts = boto3.client("sts", region_name=region)
+        assume_role_kwargs: dict[str, str] = {
+            "RoleArn": role_arn,
+            "RoleSessionName": "OpenSREBedrockInvoke",
+        }
+        if external_id:
+            assume_role_kwargs["ExternalId"] = external_id
+        credentials = sts.assume_role(**assume_role_kwargs)["Credentials"]
+        return boto3.Session(
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+            region_name=region,
+        )
+
+    profile = os.getenv(BEDROCK_AWS_PROFILE_ENV, "").strip()
+    if profile:
+        return boto3.Session(profile_name=profile)
+
+    return None
+
+
+def frozen_bedrock_credentials(session: boto3.Session) -> Any:
+    """Resolved static credentials ``AnthropicBedrock`` needs as explicit kwargs.
+
+    Raises a clear error if the session (from :func:`resolve_bedrock_aws_session`)
+    cannot resolve credentials at all, e.g. ``BEDROCK_AWS_PROFILE`` names a
+    profile with no credentials configured.
+    """
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise RuntimeError(
+            "Could not resolve AWS credentials for the Bedrock session. "
+            "Check BEDROCK_AWS_PROFILE (does the named profile have credentials?) "
+            "or BEDROCK_AWS_ROLE_ARN."
+        )
+    return credentials.get_frozen_credentials()
 
 
 def new_tool_use_id() -> str:

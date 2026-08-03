@@ -64,9 +64,77 @@ def test_bedrock_client_requires_region_env(monkeypatch: pytest.MonkeyPatch) -> 
     _install_fake_anthropic(monkeypatch)
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("BEDROCK_AWS_REGION", raising=False)
 
-    with pytest.raises(RuntimeError, match="Bedrock requires AWS_REGION or AWS_DEFAULT_REGION"):
+    with pytest.raises(RuntimeError, match="Bedrock requires AWS_REGION"):
         BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
+
+
+def _record_anthropic_bedrock_init_kwargs(
+    fake_anthropic: types.SimpleNamespace,
+) -> list[dict[str, object]]:
+    """Wrap the fake AnthropicBedrock's __init__ to record every kwarg it receives."""
+    calls: list[dict[str, object]] = []
+    original_init = fake_anthropic.AnthropicBedrock.__init__
+
+    def _recording_init(self: object, **kwargs: object) -> None:
+        calls.append(kwargs)
+        original_init(self, **kwargs)
+
+    fake_anthropic.AnthropicBedrock.__init__ = _recording_init
+    return calls
+
+
+def test_bedrock_client_uses_ambient_chain_when_no_override_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No BEDROCK_AWS_* override: today's exact behavior, no explicit creds passed."""
+    fake_anthropic = _install_fake_anthropic(monkeypatch)
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
+        lambda: None,
+    )
+    calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
+
+    BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
+
+    assert "aws_access_key" not in calls[0]
+    assert calls[0]["aws_region"] == "us-west-2"
+
+
+def test_bedrock_client_uses_resolved_session_credentials_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A BEDROCK_AWS_PROFILE/ROLE_ARN override must pass explicit static creds,
+    isolated from whatever ambient AWS_PROFILE investigation tools use (#4482)."""
+    fake_anthropic = _install_fake_anthropic(monkeypatch)
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+
+    class _FakeFrozenCredentials:
+        access_key = "AKIA-BEDROCK"
+        secret_key = "secret-bedrock"
+        token = "token-bedrock"
+
+    class _FakeSession:
+        pass
+
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
+        lambda: _FakeSession(),
+    )
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.frozen_bedrock_credentials",
+        lambda _session: _FakeFrozenCredentials(),
+    )
+    calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
+
+    BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
+
+    assert calls[0]["aws_access_key"] == "AKIA-BEDROCK"
+    assert calls[0]["aws_secret_key"] == "secret-bedrock"
+    assert calls[0]["aws_session_token"] == "token-bedrock"
+    assert calls[0]["aws_region"] == "us-west-2"
 
 
 def test_bedrock_auth_error_message_references_aws_credentials(
@@ -1604,12 +1672,46 @@ def _stub_boto3_converse(
 def test_bedrock_converse_requires_region_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("BEDROCK_AWS_REGION", raising=False)
     _stub_boto3_converse(monkeypatch)
 
     from core.llm.transports.sdk.agent_clients import BedrockConverseAgentClient
 
-    with pytest.raises(RuntimeError, match="Bedrock requires AWS_REGION or AWS_DEFAULT_REGION"):
+    with pytest.raises(RuntimeError, match="Bedrock requires AWS_REGION"):
         BedrockConverseAgentClient(model=_MISTRAL_MODEL)
+
+
+def test_bedrock_converse_uses_resolved_session_client_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A BEDROCK_AWS_PROFILE/ROLE_ARN override must build the runtime client
+    from the resolved session, not the ambient default boto3.client (#4482)."""
+    from core.llm.transports.sdk.agent_clients import BedrockConverseAgentClient
+
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    _stub_boto3_converse(monkeypatch)
+
+    session_client_calls: list[tuple[str, dict[str, object]]] = []
+    default_client_calls: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeSession:
+        def client(self, service: str, **kwargs: object) -> object:
+            session_client_calls.append((service, kwargs))
+            return object()
+
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
+        lambda: _FakeSession(),
+    )
+    monkeypatch.setattr(
+        "boto3.client",
+        lambda *args, **kwargs: default_client_calls.append((args, kwargs)),
+    )
+
+    BedrockConverseAgentClient(model=_MISTRAL_MODEL)
+
+    assert session_client_calls == [("bedrock-runtime", {"region_name": "us-east-1"})]
+    assert default_client_calls == []
 
 
 def test_bedrock_converse_invoke_parses_tool_use(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 from collections.abc import Callable
@@ -336,20 +335,36 @@ class BedrockAgentClient(AnthropicAgentClient):
     provider_name = "Bedrock"
     auth_error_hint = (
         "Check AWS credentials (for example AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, "
-        "or instance role) and AWS_REGION/AWS_DEFAULT_REGION."
+        "or instance role) and AWS_REGION/AWS_DEFAULT_REGION. For a Bedrock account different "
+        "from the one used for infrastructure investigation, set BEDROCK_AWS_PROFILE or "
+        "BEDROCK_AWS_ROLE_ARN."
     )
 
     def __init__(self, model: str, max_tokens: int = 4096) -> None:
         from anthropic import AnthropicBedrock
 
-        region = (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "").strip()
-        if not region:
-            raise RuntimeError("Bedrock requires AWS_REGION or AWS_DEFAULT_REGION to be set.")
-
-        bedrock_client = AnthropicBedrock(
-            aws_region=region,
-            timeout=AGENT_CLIENT_TIMEOUT_SEC,
+        from core.llm.transports.sdk.bedrock_converse import (
+            frozen_bedrock_credentials,
+            require_aws_region,
+            resolve_bedrock_aws_session,
         )
+
+        region = require_aws_region()
+        session = resolve_bedrock_aws_session()
+        if session is not None:
+            frozen = frozen_bedrock_credentials(session)
+            bedrock_client = AnthropicBedrock(
+                aws_access_key=frozen.access_key,
+                aws_secret_key=frozen.secret_key,
+                aws_session_token=frozen.token,
+                aws_region=region,
+                timeout=AGENT_CLIENT_TIMEOUT_SEC,
+            )
+        else:
+            bedrock_client = AnthropicBedrock(
+                aws_region=region,
+                timeout=AGENT_CLIENT_TIMEOUT_SEC,
+            )
         super().__init__(model=model, max_tokens=max_tokens, client=bedrock_client)
 
     def _permission_denied_error_message(self) -> str:
@@ -379,12 +394,19 @@ class BedrockConverseAgentClient:
     def __init__(self, model: str, max_tokens: int = 4096) -> None:
         import boto3
 
-        from core.llm.transports.sdk.bedrock_converse import require_aws_region
+        from core.llm.transports.sdk.bedrock_converse import (
+            require_aws_region,
+            resolve_bedrock_aws_session,
+        )
 
         self._model = model
         self._max_tokens = max_tokens
         region = require_aws_region()
-        self._boto3_client = boto3.client("bedrock-runtime", region_name=region)
+        session = resolve_bedrock_aws_session()
+        if session is not None:
+            self._boto3_client = session.client("bedrock-runtime", region_name=region)
+        else:
+            self._boto3_client = boto3.client("bedrock-runtime", region_name=region)
 
     @property
     def model_id(self) -> str | None:

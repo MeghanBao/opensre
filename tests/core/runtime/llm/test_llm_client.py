@@ -240,6 +240,79 @@ def test_bedrock_client_routes_mistral_to_converse(monkeypatch) -> None:
     assert "system" not in call
 
 
+def test_bedrock_llm_client_converse_uses_resolved_session_when_configured(
+    monkeypatch,
+) -> None:
+    """A BEDROCK_AWS_PROFILE/ROLE_ARN override must build the runtime client
+    from the resolved session, not the ambient default boto3.client (#4482)."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("BEDROCK_AWS_REGION", raising=False)
+    monkeypatch.setattr(
+        "platform.guardrails.engine.get_guardrail_engine",
+        _InactiveGuardrailEngine,
+    )
+    session_client_calls: list[tuple[str, dict]] = []
+    default_client_calls: list[tuple[str, dict]] = []
+
+    class _FakeSession:
+        def client(self, service: str, **kwargs) -> object:
+            session_client_calls.append((service, kwargs))
+            return _RecordingBedrockRuntime({"output": {"message": {"content": []}}})
+
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
+        lambda: _FakeSession(),
+    )
+    monkeypatch.setattr(
+        sdk_llm.boto3,
+        "client",
+        lambda *a, **k: default_client_calls.append((a, k)),
+    )
+
+    sdk_llm.BedrockLLMClient(model="mistral.mistral-large-2402-v1:0")
+
+    assert session_client_calls == [("bedrock-runtime", {"region_name": "us-east-1"})]
+    assert default_client_calls == []
+
+
+def test_bedrock_llm_client_anthropic_uses_resolved_session_credentials(monkeypatch) -> None:
+    """Same override, Anthropic-on-Bedrock path: explicit static creds, not ambient."""
+    monkeypatch.setattr(
+        "platform.guardrails.engine.get_guardrail_engine",
+        _InactiveGuardrailEngine,
+    )
+
+    class _FakeFrozenCredentials:
+        access_key = "AKIA-BEDROCK"
+        secret_key = "secret-bedrock"
+        token = "token-bedrock"
+
+    class _FakeSession:
+        pass
+
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
+        lambda: _FakeSession(),
+    )
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.frozen_bedrock_credentials",
+        lambda _session: _FakeFrozenCredentials(),
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        sdk_llm,
+        "AnthropicBedrock",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
+
+    assert calls[0]["aws_access_key"] == "AKIA-BEDROCK"
+    assert calls[0]["aws_secret_key"] == "secret-bedrock"
+    assert calls[0]["aws_session_token"] == "token-bedrock"
+
+
 def test_invoke_converse_includes_optional_system_temperature(monkeypatch) -> None:
     monkeypatch.setattr(
         "platform.guardrails.engine.get_guardrail_engine",

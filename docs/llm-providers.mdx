@@ -327,6 +327,22 @@ No API key — auth uses the AWS credential chain (environment variables, shared
 
 Defaults in `config/config.py` are US cross-region inference profile IDs for Anthropic Claude; override with IDs or ARNs that are **inference-access enabled** in your account and region.
 
+**Cross-account setup** (Bedrock reachable only via an AssumeRole profile in a different AWS account than the one you investigate): infrastructure tools (EC2, CloudWatch, ...) already follow the process's ambient `AWS_PROFILE`, so nothing about your usual credential setup needs to change for them. Bedrock alone can be pointed at a different identity with:
+
+```bash
+# A named profile (may itself be an AssumeRole + source_profile pair):
+export BEDROCK_AWS_PROFILE=bedrock-account
+
+# Or an explicit assume-role, for deployments with no ~/.aws/config file (e.g. Fargate):
+export BEDROCK_AWS_ROLE_ARN=arn:aws:iam::<account-id>:role/BedrockInvoke
+export BEDROCK_AWS_EXTERNAL_ID=your-external-id     # optional
+
+# Optional: only needed if Bedrock's region differs from AWS_REGION
+export BEDROCK_AWS_REGION=us-east-1
+```
+
+`BEDROCK_AWS_ROLE_ARN` takes precedence when both are set. Neither variable changes behavior when unset — Bedrock keeps using the same ambient credential chain as everything else.
+
 ### Google Vertex AI
 
 ```bash

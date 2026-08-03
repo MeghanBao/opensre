@@ -91,6 +91,10 @@ All configuration options for OpenSRE can be set via environment variables. This
 |----------|---------|-------------|--------|
 | `BEDROCK_REASONING_MODEL` | | Model for reasoning tasks | `config` |
 | `BEDROCK_TOOLCALL_MODEL` | | Model for tool calling | `config` |
+| `BEDROCK_AWS_PROFILE` | | Named AWS profile for Bedrock only, isolated from `AWS_PROFILE` used by infrastructure investigation | `config/constants/aws` |
+| `BEDROCK_AWS_ROLE_ARN` | | AWS role to assume for Bedrock only (cross-account setup); takes precedence over `BEDROCK_AWS_PROFILE` | `config/constants/aws` |
+| `BEDROCK_AWS_EXTERNAL_ID` | | External ID for the `BEDROCK_AWS_ROLE_ARN` assume-role call | `config/constants/aws` |
+| `BEDROCK_AWS_REGION` | | Region override for Bedrock only, when it differs from `AWS_REGION` | `config/constants/aws` |
 
 ### Ollama (Local)
 | Variable | Default | Description | Module |

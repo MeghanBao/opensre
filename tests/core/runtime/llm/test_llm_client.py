@@ -332,33 +332,34 @@ def test_bedrock_llm_client_converse_uses_resolved_session_when_configured(
     assert default_client_calls == []
 
 
-def test_bedrock_llm_client_anthropic_uses_resolved_session_credentials(monkeypatch) -> None:
-    """Same override, Anthropic-on-Bedrock path: explicit static creds, not ambient."""
+def test_bedrock_llm_client_anthropic_uses_build_bedrock_anthropic_client_result(
+    monkeypatch,
+) -> None:
+    """BedrockLLMClient's Anthropic-on-Bedrock branch must delegate client
+    construction entirely to build_bedrock_anthropic_client (see
+    test_bedrock_aws_session.py for coverage of ambient/profile/role-arn
+    selection) and use its exact result, passing no timeout (unlike the
+    agent-loop Bedrock client, this class has never set one explicitly)."""
     monkeypatch.setattr(
         "platform.guardrails.engine.get_guardrail_engine",
         _InactiveGuardrailEngine,
     )
-
-    monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
-        lambda _region: {
-            "aws_access_key": "AKIA-BEDROCK",
-            "aws_secret_key": "secret-bedrock",
-            "aws_session_token": "token-bedrock",
-        },
-    )
+    sentinel_client = object()
     calls: list[dict] = []
+
+    def _fake_build(*, region: str, timeout: float | None = None) -> object:
+        calls.append({"region": region, "timeout": timeout})
+        return sentinel_client
+
     monkeypatch.setattr(
-        sdk_llm,
-        "AnthropicBedrock",
-        lambda **kwargs: calls.append(kwargs),
+        "core.llm.transports.sdk.bedrock_converse.build_bedrock_anthropic_client",
+        _fake_build,
     )
 
-    sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
+    client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
 
-    assert calls[0]["aws_access_key"] == "AKIA-BEDROCK"
-    assert calls[0]["aws_secret_key"] == "secret-bedrock"
-    assert calls[0]["aws_session_token"] == "token-bedrock"
+    assert client._anthropic_client is sentinel_client
+    assert calls == [{"region": client._aws_region, "timeout": None}]
 
 
 def test_invoke_converse_includes_optional_system_temperature(monkeypatch) -> None:
@@ -436,7 +437,9 @@ def test_bedrock_anthropic_bad_request_does_not_retry(monkeypatch) -> None:
         def __init__(self, **_kwargs) -> None:
             self.messages = _Messages()
 
-    monkeypatch.setattr(sdk_llm, "AnthropicBedrock", _AnthropicBedrock)
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock", _AnthropicBedrock
+    )
     monkeypatch.setattr(sdk_llm.time, "sleep", lambda s: sleeps.append(s))
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
@@ -464,7 +467,9 @@ def test_bedrock_anthropic_stream_bad_request_does_not_retry(monkeypatch) -> Non
         def __init__(self, **_kwargs) -> None:
             self.messages = _Messages()
 
-    monkeypatch.setattr(sdk_llm, "AnthropicBedrock", _AnthropicBedrock)
+    monkeypatch.setattr(
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock", _AnthropicBedrock
+    )
     monkeypatch.setattr(sdk_llm.time, "sleep", lambda s: sleeps.append(s))
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
@@ -2071,7 +2076,8 @@ def test_bedrock_invoke_anthropic_not_found_raises_immediately(monkeypatch) -> N
     )
     err = NotFoundError(message="not found", response=resp, body={})  # type: ignore[arg-type]
     monkeypatch.setattr(
-        sdk_llm, "AnthropicBedrock", lambda **_: _make_bedrock_anthropic_client(err)
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock",
+        lambda **_: _make_bedrock_anthropic_client(err),
     )
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-old-v1:0")
@@ -2096,7 +2102,8 @@ def test_bedrock_invoke_anthropic_authentication_raises_immediately(monkeypatch)
     )
     err = AuthenticationError(message="bad credentials", response=resp, body={})  # type: ignore[arg-type]
     monkeypatch.setattr(
-        sdk_llm, "AnthropicBedrock", lambda **_: _make_bedrock_anthropic_client(err)
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock",
+        lambda **_: _make_bedrock_anthropic_client(err),
     )
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
@@ -2128,7 +2135,8 @@ def test_bedrock_invoke_anthropic_bad_request_inference_profile(monkeypatch) -> 
         message="on-demand throughput isn't supported", response=resp, body={}
     )  # type: ignore[arg-type]
     monkeypatch.setattr(
-        sdk_llm, "AnthropicBedrock", lambda **_: _make_bedrock_anthropic_client(err)
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock",
+        lambda **_: _make_bedrock_anthropic_client(err),
     )
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-opus-4-1-20250805-v1:0")
@@ -2153,7 +2161,8 @@ def test_bedrock_invoke_anthropic_permission_denied_raises_immediately(monkeypat
     )
     err = PermissionDeniedError(message="not available for this account", response=resp, body={})  # type: ignore[arg-type]
     monkeypatch.setattr(
-        sdk_llm, "AnthropicBedrock", lambda **_: _make_bedrock_anthropic_client(err)
+        "core.llm.transports.sdk.bedrock_converse.AnthropicBedrock",
+        lambda **_: _make_bedrock_anthropic_client(err),
     )
 
     client = sdk_llm.BedrockLLMClient(model="anthropic.claude-opus-4-7")

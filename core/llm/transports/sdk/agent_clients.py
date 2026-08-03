@@ -341,18 +341,14 @@ class BedrockAgentClient(AnthropicAgentClient):
     )
 
     def __init__(self, model: str, max_tokens: int = 4096) -> None:
-        from anthropic import AnthropicBedrock
-
         from core.llm.transports.sdk.bedrock_converse import (
+            build_bedrock_anthropic_client,
             require_aws_region,
-            resolve_bedrock_anthropic_kwargs,
         )
 
         region = require_aws_region()
-        bedrock_client = AnthropicBedrock(
-            aws_region=region,
-            timeout=AGENT_CLIENT_TIMEOUT_SEC,
-            **resolve_bedrock_anthropic_kwargs(region),
+        bedrock_client = build_bedrock_anthropic_client(
+            region=region, timeout=AGENT_CLIENT_TIMEOUT_SEC
         )
         super().__init__(model=model, max_tokens=max_tokens, client=bedrock_client)
 

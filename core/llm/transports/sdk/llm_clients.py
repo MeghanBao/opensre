@@ -407,7 +407,7 @@ class BedrockLLMClient:
         self, *, model: str, max_tokens: int = 1024, temperature: float | None = None
     ) -> None:
         from core.llm.transports.sdk.bedrock_converse import (
-            resolve_bedrock_anthropic_kwargs,
+            build_bedrock_anthropic_client,
             resolve_bedrock_aws_session,
         )
 
@@ -432,9 +432,8 @@ class BedrockLLMClient:
         ).strip()
 
         if self._use_anthropic:
-            self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(
-                aws_region=self._aws_region,
-                **resolve_bedrock_anthropic_kwargs(self._aws_region),
+            self._anthropic_client: AnthropicBedrock | None = build_bedrock_anthropic_client(
+                region=self._aws_region
             )
             self._boto3_client: Any = None
         else:

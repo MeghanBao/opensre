@@ -16,8 +16,9 @@ from typing import Any
 import pytest
 
 from core.llm.transports.sdk.bedrock_converse import (
+    _RefreshingBedrockAnthropicClient,
+    build_bedrock_anthropic_client,
     require_aws_region,
-    resolve_bedrock_anthropic_kwargs,
     resolve_bedrock_aws_session,
 )
 
@@ -217,48 +218,172 @@ def test_resolve_bedrock_aws_session_never_requires_a_region_itself(
 
 
 # --------------------------------------------------------------------------- #
-# resolve_bedrock_anthropic_kwargs (AnthropicBedrock consumers)                #
+# build_bedrock_anthropic_client (AnthropicBedrock consumers)                  #
 # --------------------------------------------------------------------------- #
 
 
-def test_resolve_bedrock_anthropic_kwargs_empty_when_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_bedrock_env(monkeypatch)
-
-    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {}
-
-
-def test_resolve_bedrock_anthropic_kwargs_passes_profile_through_unresolved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A named profile must reach AnthropicBedrock as aws_profile=, not be
-    resolved-and-frozen into static keys — freezing would silently drop the
-    refresh a role_arn + source_profile pair in ~/.aws/config provides."""
-    _clear_bedrock_env(monkeypatch)
-    monkeypatch.setenv("BEDROCK_AWS_PROFILE", "bedrock-account")
-
-    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {"aws_profile": "bedrock-account"}
-
-
-def test_resolve_bedrock_anthropic_kwargs_assumes_role(monkeypatch: pytest.MonkeyPatch) -> None:
-    _clear_bedrock_env(monkeypatch)
-    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+def _install_fake_sts_assume_role(
+    monkeypatch: pytest.MonkeyPatch, *, expiration: str = "2999-01-01T00:00:00+00:00"
+) -> list[dict[str, Any]]:
+    """Patch the plain boto3.client("sts").assume_role() call
+    _assumed_bedrock_role_credentials makes directly (not the
+    AssumeRoleCredentialFetcher-based path _refreshable_role_session uses)."""
+    calls: list[dict[str, Any]] = []
+    counter = iter(range(1, 1000))
 
     class _FakeStsClient:
-        def assume_role(self, **_kwargs: Any) -> dict[str, Any]:
+        def assume_role(self, **kwargs: Any) -> dict[str, Any]:
+            n = next(counter)
+            calls.append(kwargs)
             return {
                 "Credentials": {
-                    "AccessKeyId": "AKIA-TEMP",
-                    "SecretAccessKey": "secret-temp",
-                    "SessionToken": "token-temp",
+                    "AccessKeyId": f"AKIA-TEMP-{n}",
+                    "SecretAccessKey": f"secret-temp-{n}",
+                    "SessionToken": f"token-temp-{n}",
+                    "Expiration": expiration,
                 }
             }
 
     monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
+    return calls
 
-    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {
-        "aws_access_key": "AKIA-TEMP",
-        "aws_secret_key": "secret-temp",
-        "aws_session_token": "token-temp",
-    }
+
+def test_build_bedrock_anthropic_client_ambient_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No override: today's exact ambient-chain client, not the refreshing subclass."""
+    _clear_bedrock_env(monkeypatch)
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+
+    assert type(client) is not _RefreshingBedrockAnthropicClient
+    assert client.aws_access_key is None
+    assert client.aws_profile is None
+    assert client.aws_region == "us-east-1"
+
+
+def test_build_bedrock_anthropic_client_uses_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A named profile must reach AnthropicBedrock as aws_profile=, not be
+    resolved-and-frozen into static keys -- freezing would silently drop the
+    refresh a role_arn + source_profile pair in ~/.aws/config provides."""
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_PROFILE", "bedrock-account")
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+
+    assert type(client) is not _RefreshingBedrockAnthropicClient
+    assert client.aws_profile == "bedrock-account"
+    assert client.aws_access_key is None
+
+
+def test_build_bedrock_anthropic_client_role_arn_uses_refreshing_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The defining fix, round 3: BEDROCK_AWS_ROLE_ARN must build a client
+    that re-assumes the role near expiry, not a client with credentials
+    frozen forever at construction (the round 1/2 bug, repeatedly flagged)."""
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    calls = _install_fake_sts_assume_role(monkeypatch)
+
+    client = build_bedrock_anthropic_client(region="us-east-1", timeout=7.0)
+
+    assert isinstance(client, _RefreshingBedrockAnthropicClient)
+    assert client.aws_access_key == "AKIA-TEMP-1"
+    assert client.aws_secret_key == "secret-temp-1"
+    assert client.aws_session_token == "token-temp-1"
+    assert client.aws_region == "us-east-1"
+    assert client.timeout == 7.0
+    assert len(calls) == 1
+
+
+def test_build_bedrock_anthropic_client_omits_timeout_when_not_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BedrockLLMClient never passes timeout; it must get the SDK's own
+    default (a real Timeout object) rather than a literal None, which
+    AnthropicBedrock treats as no-timeout-at-all."""
+    _clear_bedrock_env(monkeypatch)
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+
+    assert client.timeout is not None
+
+
+# --------------------------------------------------------------------------- #
+# _RefreshingBedrockAnthropicClient                                           #
+# --------------------------------------------------------------------------- #
+
+
+def test_refreshing_client_does_not_refetch_when_not_near_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    calls = _install_fake_sts_assume_role(monkeypatch)
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+    assert isinstance(client, _RefreshingBedrockAnthropicClient)
+    client._refresh_if_needed()
+    client._refresh_if_needed()
+
+    assert len(calls) == 1
+    assert client.aws_access_key == "AKIA-TEMP-1"
+
+
+def test_refreshing_client_refetches_when_near_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The property under test: a client that outlives the buffer window
+    re-assumes the role in place instead of staying frozen on stale creds."""
+    from datetime import UTC, datetime, timedelta
+
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    near_expiry = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
+    calls = _install_fake_sts_assume_role(monkeypatch, expiration=near_expiry)
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+    assert isinstance(client, _RefreshingBedrockAnthropicClient)
+    first_access_key = client.aws_access_key
+
+    client._refresh_if_needed()
+
+    assert len(calls) == 2
+    assert client.aws_access_key != first_access_key
+    assert client.aws_access_key == "AKIA-TEMP-2"
+
+
+def test_refreshing_client_prepare_request_refreshes_before_delegating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_prepare_request is the one hook AnthropicBedrock calls before every
+    signed request; the refresh check must run there, not only at construction."""
+    from anthropic import AnthropicBedrock
+
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    _install_fake_sts_assume_role(monkeypatch)
+
+    client = build_bedrock_anthropic_client(region="us-east-1")
+    assert isinstance(client, _RefreshingBedrockAnthropicClient)
+
+    call_order: list[str] = []
+    monkeypatch.setattr(client, "_refresh_if_needed", lambda: call_order.append("refresh"))
+    monkeypatch.setattr(
+        AnthropicBedrock, "_prepare_request", lambda _self, _request: call_order.append("prepare")
+    )
+
+    client._prepare_request(object())
+
+    assert call_order == ["refresh", "prepare"]
+
+
+def test_refreshing_client_refresh_omits_external_id_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    calls = _install_fake_sts_assume_role(monkeypatch)
+
+    build_bedrock_anthropic_client(region="us-east-1")
+
+    assert "ExternalId" not in calls[0]

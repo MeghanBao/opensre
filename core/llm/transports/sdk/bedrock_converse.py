@@ -6,7 +6,11 @@ import json
 import logging
 import os
 import secrets
+import threading
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+
+from anthropic import AnthropicBedrock
 
 from config.constants.aws import (
     BEDROCK_AWS_EXTERNAL_ID_ENV,
@@ -22,6 +26,7 @@ from core.llm.shared.tool_schema_normalize import (
 
 if TYPE_CHECKING:
     import boto3
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +54,13 @@ def require_aws_region() -> str:
 def _assumed_bedrock_role_credentials(region: str) -> dict[str, Any] | None:
     """Raw STS credentials from ``BEDROCK_AWS_ROLE_ARN``, or ``None`` if unset.
 
-    A single ``sts:AssumeRole`` snapshot, same shape as
-    ``integrations/aws/verifier.py::_build_sts_client``. Used only by
-    :func:`resolve_bedrock_anthropic_kwargs`: ``AnthropicBedrock`` has no
-    hook for a refreshable credentials provider, so its credentials are
-    necessarily a one-time snapshot, valid for the assumed role's session
-    duration (its ``MaxSessionDuration``, often 1 hour unless the role is
-    configured longer) — a cached ``AnthropicBedrock`` client that outlives
-    that window needs to be recreated. The ``boto3``-backed Bedrock clients
-    do not have this limitation: :func:`resolve_bedrock_aws_session` builds
-    a self-refreshing session for ``BEDROCK_AWS_ROLE_ARN`` via
-    :func:`_refreshable_role_session`, and for ``BEDROCK_AWS_PROFILE`` boto3
-    refreshes a role_arn-backed profile automatically.
+    A single ``sts:AssumeRole`` call, same shape as
+    ``integrations/aws/verifier.py::_build_sts_client``. Used by
+    :class:`_RefreshingBedrockAnthropicClient` to (re-)assume the role on
+    construction and again whenever its credentials are near expiry. The
+    ``boto3``-backed Bedrock clients (:func:`resolve_bedrock_aws_session`) use
+    a separate mechanism, :func:`_refreshable_role_session`, that refreshes
+    via botocore's own ``AssumeRoleCredentialFetcher`` instead.
     """
     role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
     if not role_arn:
@@ -140,9 +140,9 @@ def resolve_bedrock_aws_session(region: str) -> boto3.Session | None:
     ``BEDROCK_AWS_ROLE_ARN`` takes precedence — an explicit assume-role, for
     deployments with no ``~/.aws/config`` profile file (e.g. Fargate). The
     returned session self-refreshes (see :func:`_refreshable_role_session`),
-    so a long-lived cached client using the ``boto3``-backed Converse clients
-    (:func:`resolve_bedrock_anthropic_kwargs` covers ``AnthropicBedrock``,
-    which cannot use a refreshable session) never goes stale.
+    so a long-lived cached client built from it never goes stale. This is for
+    the ``boto3``-backed Converse clients only; :func:`build_bedrock_anthropic_client`
+    covers ``AnthropicBedrock``, which cannot accept a ``boto3.Session`` at all.
     ``BEDROCK_AWS_PROFILE`` is a named profile, which may itself be an
     AssumeRole + source_profile pair — the shape the issue's own setup used;
     boto3 refreshes that automatically too. Returns ``None`` when neither is
@@ -163,38 +163,108 @@ def resolve_bedrock_aws_session(region: str) -> boto3.Session | None:
     return None
 
 
-def resolve_bedrock_anthropic_kwargs(region: str) -> dict[str, Any]:
-    """``AnthropicBedrock`` auth kwargs for a cross-account Bedrock override.
+def _parse_expiration(expiration: Any) -> datetime:
+    """Normalize an STS ``Expiration`` value to a timezone-aware ``datetime``.
 
-    ``AnthropicBedrock`` only accepts a profile name (which it resolves, and
-    refreshes, itself) or fully static access/secret/session-token strings —
-    unlike ``boto3.Session``, there is no hook for a refreshable credentials
-    provider, so the two overrides are necessarily handled differently:
-
-    - ``BEDROCK_AWS_PROFILE`` is passed straight through as ``aws_profile``,
-      so whatever refresh the named profile supports keeps working (a
-      role_arn + source_profile pair in ``~/.aws/config`` auto-refreshes).
-    - ``BEDROCK_AWS_ROLE_ARN`` has no such hook: the returned credentials are
-      a one-time snapshot (see :func:`_assumed_bedrock_role_credentials`),
-      valid only for the assumed role's session duration.
-
-    Returns an empty dict when neither override is set, so callers fall
-    through to today's exact ambient-chain behavior (``AnthropicBedrock``
-    with no explicit credentials).
+    The real ``boto3`` client always returns a ``datetime`` already (botocore
+    parses the API's timestamp shape automatically); a plain ``isoformat()``
+    string is accepted too, so a hand-built fake in a test doesn't need a
+    real ``datetime`` object.
     """
-    credentials = _assumed_bedrock_role_credentials(region)
-    if credentials is not None:
-        return {
+    if isinstance(expiration, datetime):
+        return expiration
+    return datetime.fromisoformat(str(expiration))
+
+
+class _RefreshingBedrockAnthropicClient(AnthropicBedrock):
+    """``AnthropicBedrock`` whose ``BEDROCK_AWS_ROLE_ARN`` credentials
+    re-assume the role in place once they're near expiry.
+
+    ``AnthropicBedrock`` has no hook for a refreshable credentials provider:
+    ``aws_access_key``/``aws_secret_key``/``aws_session_token`` are plain
+    instance attributes read fresh from ``self`` by ``_prepare_request``
+    (called once per outgoing request, before every ``sts:AssumeRole``-signed
+    call), never re-resolved after construction. Overriding
+    ``_prepare_request`` to refresh those attributes in place first, before
+    delegating to the real implementation, reaches the same effect as a
+    refreshable provider would without needing one — the SDK re-reads
+    ``self.aws_access_key`` etc. on every call regardless.
+    """
+
+    _REFRESH_BUFFER = timedelta(minutes=5)
+
+    def __init__(self, *, region: str, timeout: float | None = None) -> None:
+        self._region = region
+        self._expiry: datetime | None = None
+        self._refresh_lock = threading.Lock()
+        credentials = self._assume_and_track_expiry()
+        init_kwargs: dict[str, Any] = {
             "aws_access_key": credentials["AccessKeyId"],
             "aws_secret_key": credentials["SecretAccessKey"],
             "aws_session_token": credentials["SessionToken"],
+            "aws_region": region,
         }
+        if timeout is not None:
+            init_kwargs["timeout"] = timeout
+        super().__init__(**init_kwargs)
+
+    def _assume_and_track_expiry(self) -> dict[str, Any]:
+        credentials = _assumed_bedrock_role_credentials(self._region)
+        assert credentials is not None, "BEDROCK_AWS_ROLE_ARN must be set to construct this client"
+        expiration = credentials.get("Expiration")
+        self._expiry = _parse_expiration(expiration) if expiration is not None else None
+        return credentials
+
+    def _refresh_if_needed(self) -> None:
+        if self._expiry is None:
+            return
+        if datetime.now(UTC) < self._expiry - self._REFRESH_BUFFER:
+            return
+        with self._refresh_lock:
+            if self._expiry is not None and datetime.now(UTC) < (
+                self._expiry - self._REFRESH_BUFFER
+            ):
+                return
+            credentials = self._assume_and_track_expiry()
+            self.aws_access_key = credentials["AccessKeyId"]
+            self.aws_secret_key = credentials["SecretAccessKey"]
+            self.aws_session_token = credentials["SessionToken"]
+
+    def _prepare_request(self, request: httpx.Request) -> None:
+        self._refresh_if_needed()
+        super()._prepare_request(request)
+
+
+def build_bedrock_anthropic_client(
+    *, region: str, timeout: float | None = None
+) -> AnthropicBedrock:
+    """The ``AnthropicBedrock`` client for the resolved Bedrock identity.
+
+    - No override: today's exact ambient-chain client.
+    - ``BEDROCK_AWS_PROFILE``: passed straight through as ``aws_profile``, so
+      whatever refresh the named profile supports keeps working (a role_arn +
+      source_profile pair in ``~/.aws/config`` auto-refreshes; ``AnthropicBedrock``
+      resolves and refreshes a profile itself, unlike static credentials).
+    - ``BEDROCK_AWS_ROLE_ARN``: a :class:`_RefreshingBedrockAnthropicClient`,
+      since ``AnthropicBedrock`` has no other hook for a refreshable provider.
+
+    ``timeout`` is forwarded only when given, so a caller that omits it (as
+    ``BedrockLLMClient`` always has) gets the SDK's own default rather than a
+    literal ``None`` overriding it to no-timeout.
+    """
+    role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
+    if role_arn:
+        return _RefreshingBedrockAnthropicClient(region=region, timeout=timeout)
+
+    init_kwargs: dict[str, Any] = {"aws_region": region}
+    if timeout is not None:
+        init_kwargs["timeout"] = timeout
 
     profile = os.getenv(BEDROCK_AWS_PROFILE_ENV, "").strip()
     if profile:
-        return {"aws_profile": profile}
+        init_kwargs["aws_profile"] = profile
 
-    return {}
+    return AnthropicBedrock(**init_kwargs)
 
 
 def new_tool_use_id() -> str:

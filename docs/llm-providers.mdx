@@ -343,7 +343,7 @@ export BEDROCK_AWS_REGION=us-east-1
 
 `BEDROCK_AWS_ROLE_ARN` takes precedence when both are set. Neither variable changes behavior when unset — Bedrock keeps using the same ambient credential chain as everything else.
 
-Both variables keep refreshing for as long as the process runs, for non-Claude models (Mistral, Llama, ...) and for Claude models when using `BEDROCK_AWS_PROFILE`. Claude models on Bedrock via `BEDROCK_AWS_ROLE_ARN` are the one exception: the Anthropic Bedrock SDK has no hook for a refreshable credential provider, so those credentials are a one-time snapshot valid for the assumed role's session duration (its `MaxSessionDuration`, often 1 hour unless the role is configured longer) — a long-running process using a Claude model this way needs its LLM clients recreated once that expires (e.g. via `/model` in the interactive shell). Use `BEDROCK_AWS_PROFILE` with a role_arn + source_profile pair in `~/.aws/config` instead if that matters for your setup.
+Both variables keep refreshing for as long as the process runs, for every model, including Claude via `BEDROCK_AWS_ROLE_ARN`. The Anthropic Bedrock SDK itself has no hook for a refreshable credential provider, so OpenSRE re-assumes the role in place shortly before the assumed session's credentials expire, keeping a long-running process's LLM client usable indefinitely without needing to be recreated.
 
 ### Google Vertex AI
 

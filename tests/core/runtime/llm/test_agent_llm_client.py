@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from core.llm.factory import LLMRole, get_llm, reset_llm_clients
+from core.llm.shared.openai_chat_completions import AGENT_CLIENT_TIMEOUT_SEC
 from core.llm.transports.sdk.agent_clients import (
     AnthropicAgentClient,
     BedrockAgentClient,
@@ -70,63 +71,30 @@ def test_bedrock_client_requires_region_env(monkeypatch: pytest.MonkeyPatch) -> 
         BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
 
 
-def _record_anthropic_bedrock_init_kwargs(
-    fake_anthropic: types.SimpleNamespace,
-) -> list[dict[str, object]]:
-    """Wrap the fake AnthropicBedrock's __init__ to record every kwarg it receives."""
+def test_bedrock_client_uses_build_bedrock_anthropic_client_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BedrockAgentClient must delegate client construction (ambient chain,
+    BEDROCK_AWS_PROFILE, or BEDROCK_AWS_ROLE_ARN selection) entirely to
+    build_bedrock_anthropic_client -- see test_bedrock_aws_session.py for
+    coverage of that selection logic itself -- and use its exact result."""
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    sentinel_client = object()
     calls: list[dict[str, object]] = []
-    original_init = fake_anthropic.AnthropicBedrock.__init__
 
-    def _recording_init(self: object, **kwargs: object) -> None:
-        calls.append(kwargs)
-        original_init(self, **kwargs)
-
-    fake_anthropic.AnthropicBedrock.__init__ = _recording_init
-    return calls
-
-
-def test_bedrock_client_uses_ambient_chain_when_no_override_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No BEDROCK_AWS_* override: today's exact behavior, no explicit creds passed."""
-    fake_anthropic = _install_fake_anthropic(monkeypatch)
-    monkeypatch.setenv("AWS_REGION", "us-west-2")
-    monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
-        lambda _region: {},
-    )
-    calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
-
-    BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
-
-    assert "aws_access_key" not in calls[0]
-    assert calls[0]["aws_region"] == "us-west-2"
-
-
-def test_bedrock_client_uses_resolved_session_credentials_when_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A BEDROCK_AWS_PROFILE/ROLE_ARN override must pass explicit static creds,
-    isolated from whatever ambient AWS_PROFILE investigation tools use (#4482)."""
-    fake_anthropic = _install_fake_anthropic(monkeypatch)
-    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    def _fake_build(*, region: str, timeout: float | None = None) -> object:
+        calls.append({"region": region, "timeout": timeout})
+        return sentinel_client
 
     monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
-        lambda _region: {
-            "aws_access_key": "AKIA-BEDROCK",
-            "aws_secret_key": "secret-bedrock",
-            "aws_session_token": "token-bedrock",
-        },
+        "core.llm.transports.sdk.bedrock_converse.build_bedrock_anthropic_client",
+        _fake_build,
     )
-    calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
 
-    BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
+    client = BedrockAgentClient(model="us.anthropic.claude-sonnet-4-6")
 
-    assert calls[0]["aws_access_key"] == "AKIA-BEDROCK"
-    assert calls[0]["aws_secret_key"] == "secret-bedrock"
-    assert calls[0]["aws_session_token"] == "token-bedrock"
-    assert calls[0]["aws_region"] == "us-west-2"
+    assert client._client is sentinel_client
+    assert calls == [{"region": "us-west-2", "timeout": AGENT_CLIENT_TIMEOUT_SEC}]
 
 
 def test_bedrock_auth_error_message_references_aws_credentials(

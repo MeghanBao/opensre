@@ -421,13 +421,15 @@ class BedrockLLMClient:
         # this one does not require a region to be configured explicitly).
         # The `or` chain (not nested os.getenv defaults) matters: a variable
         # present but set to "" must fall through too, not short-circuit on
-        # an empty string.
+        # an empty string. The trailing .strip() matches require_aws_region():
+        # a shell-provided " us-east-1" must be normalized, not forwarded
+        # verbatim to the SDK, which rejects a region string with whitespace.
         self._aws_region = (
             os.getenv(BEDROCK_AWS_REGION_ENV)
             or os.getenv("AWS_REGION")
             or os.getenv("AWS_DEFAULT_REGION")
             or "us-east-1"
-        )
+        ).strip()
 
         if self._use_anthropic:
             self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(

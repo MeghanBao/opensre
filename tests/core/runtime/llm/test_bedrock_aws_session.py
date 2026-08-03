@@ -85,54 +85,84 @@ def test_resolve_bedrock_aws_session_uses_profile(monkeypatch: pytest.MonkeyPatc
     assert calls == [{"profile_name": "bedrock-account"}]
 
 
+def _install_fake_assume_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[dict[str, Any]]:
+    """Patch the real STS network call inside AssumeRoleCredentialFetcher.
+
+    Returns the list of ``assume_role``-shaped kwargs the fetcher was called
+    with (RoleArn/RoleSessionName/ExternalId), one entry per real fetch.
+    Leaves the real ``DeferredRefreshableCredentials``/``AssumeRoleCredentialFetcher``
+    wiring un-mocked, so a test can call ``get_frozen_credentials()`` and get
+    values produced by a genuine (if network-stubbed) assume-role flow.
+    """
+    from botocore.credentials import AssumeRoleCredentialFetcher
+
+    calls: list[dict[str, Any]] = []
+    counter = iter(range(1, 1000))
+
+    def _fake_get_credentials(self: Any) -> dict[str, Any]:
+        n = next(counter)
+        calls.append(dict(self._assume_kwargs))
+        return {
+            "Credentials": {
+                "AccessKeyId": f"AKIA-TEMP-{n}",
+                "SecretAccessKey": f"secret-temp-{n}",
+                "SessionToken": f"token-temp-{n}",
+                # Far enough out that a single get_frozen_credentials() call
+                # doesn't itself trigger a second fetch via botocore's own
+                # advisory-refresh window.
+                "Expiration": "2999-01-01T00:00:00+00:00",
+            }
+        }
+
+    monkeypatch.setattr(AssumeRoleCredentialFetcher, "_get_credentials", _fake_get_credentials)
+    return calls
+
+
 def test_resolve_bedrock_aws_session_assumes_role(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_bedrock_env(monkeypatch)
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
     monkeypatch.setenv("BEDROCK_AWS_EXTERNAL_ID", "shared-secret")
-
-    assume_role_calls: list[dict[str, Any]] = []
-    session_calls: list[dict[str, Any]] = []
-
-    class _FakeStsClient:
-        def assume_role(self, **kwargs: Any) -> dict[str, Any]:
-            assume_role_calls.append(kwargs)
-            return {
-                "Credentials": {
-                    "AccessKeyId": "AKIA-TEMP",
-                    "SecretAccessKey": "secret-temp",
-                    "SessionToken": "token-temp",
-                }
-            }
-
-    class _FakeSession:
-        def __init__(self, **kwargs: Any) -> None:
-            session_calls.append(kwargs)
-
-    def _fake_boto3_client(service: str, **_kwargs: Any) -> _FakeStsClient:
-        assert service == "sts"
-        return _FakeStsClient()
-
-    monkeypatch.setattr("boto3.client", _fake_boto3_client)
-    monkeypatch.setattr("boto3.Session", _FakeSession)
+    calls = _install_fake_assume_role(monkeypatch)
 
     session = resolve_bedrock_aws_session("us-east-1")
 
-    assert isinstance(session, _FakeSession)
-    assert assume_role_calls == [
+    assert session is not None
+    frozen = session.get_credentials().get_frozen_credentials()
+    assert frozen.access_key == "AKIA-TEMP-1"
+    assert frozen.secret_key == "secret-temp-1"
+    assert frozen.token == "token-temp-1"
+    assert calls == [
         {
             "RoleArn": "arn:aws:iam::999:role/BedrockInvoke",
             "RoleSessionName": "OpenSREBedrockInvoke",
             "ExternalId": "shared-secret",
         }
     ]
-    assert session_calls == [
-        {
-            "aws_access_key_id": "AKIA-TEMP",
-            "aws_secret_access_key": "secret-temp",
-            "aws_session_token": "token-temp",
-            "region_name": "us-east-1",
-        }
-    ]
+
+
+def test_resolve_bedrock_aws_session_role_arn_credentials_are_refreshable_not_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The defining fix for #4482's repeated P1: BEDROCK_AWS_ROLE_ARN must
+    produce a self-refreshing credentials object, not a static one-time
+    snapshot (the round-1/round-2 bug). ``DeferredRefreshableCredentials``
+    is real, heavily-used botocore/boto3 machinery (the same mechanism
+    boto3 uses internally for a role_arn + source_profile profile) -- its
+    own time-based refresh-on-expiry behavior is botocore's tested concern,
+    not ours; what this asserts is that OpenSRE's wiring actually produces
+    that type instead of a plain, permanently-static Credentials object."""
+    from botocore.credentials import DeferredRefreshableCredentials
+
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    _install_fake_assume_role(monkeypatch)
+
+    session = resolve_bedrock_aws_session("us-east-1")
+
+    assert session is not None
+    assert isinstance(session.get_credentials(), DeferredRefreshableCredentials)
 
 
 def test_resolve_bedrock_aws_session_role_arn_takes_precedence_over_profile(
@@ -142,25 +172,9 @@ def test_resolve_bedrock_aws_session_role_arn_takes_precedence_over_profile(
     _clear_bedrock_env(monkeypatch)
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
     monkeypatch.setenv("BEDROCK_AWS_PROFILE", "should-be-ignored")
-
+    _install_fake_assume_role(monkeypatch)
     session_calls: list[dict[str, Any]] = []
-
-    class _FakeStsClient:
-        def assume_role(self, **_kwargs: Any) -> dict[str, Any]:
-            return {
-                "Credentials": {
-                    "AccessKeyId": "AKIA-TEMP",
-                    "SecretAccessKey": "secret-temp",
-                    "SessionToken": "token-temp",
-                }
-            }
-
-    class _FakeSession:
-        def __init__(self, **kwargs: Any) -> None:
-            session_calls.append(kwargs)
-
-    monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
-    monkeypatch.setattr("boto3.Session", _FakeSession)
+    monkeypatch.setattr("boto3.Session", lambda **kwargs: session_calls.append(kwargs) or object())
 
     resolve_bedrock_aws_session("us-east-1")
 
@@ -174,26 +188,13 @@ def test_resolve_bedrock_aws_session_role_arn_without_external_id(
     """ExternalId is optional; omit it entirely rather than sending an empty string."""
     _clear_bedrock_env(monkeypatch)
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+    calls = _install_fake_assume_role(monkeypatch)
 
-    assume_role_calls: list[dict[str, Any]] = []
+    session = resolve_bedrock_aws_session("us-east-1")
+    assert session is not None
+    session.get_credentials().get_frozen_credentials()
 
-    class _FakeStsClient:
-        def assume_role(self, **kwargs: Any) -> dict[str, Any]:
-            assume_role_calls.append(kwargs)
-            return {
-                "Credentials": {
-                    "AccessKeyId": "AKIA-TEMP",
-                    "SecretAccessKey": "secret-temp",
-                    "SessionToken": "token-temp",
-                }
-            }
-
-    monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
-    monkeypatch.setattr("boto3.Session", lambda **_kwargs: object())
-
-    resolve_bedrock_aws_session("us-east-1")
-
-    assert "ExternalId" not in assume_role_calls[0]
+    assert "ExternalId" not in calls[0]
 
 
 def test_resolve_bedrock_aws_session_never_requires_a_region_itself(
@@ -204,31 +205,15 @@ def test_resolve_bedrock_aws_session_never_requires_a_region_itself(
     permissive us-east-1 default just because AWS_REGION is unset)."""
     _clear_bedrock_env(monkeypatch)
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
-
-    class _FakeStsClient:
-        def assume_role(self, **_kwargs: Any) -> dict[str, Any]:
-            return {
-                "Credentials": {
-                    "AccessKeyId": "AKIA-TEMP",
-                    "SecretAccessKey": "secret-temp",
-                    "SessionToken": "token-temp",
-                }
-            }
-
-    monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
-    monkeypatch.setattr("boto3.Session", lambda **kwargs: kwargs)
+    _install_fake_assume_role(monkeypatch)
 
     # No AWS_REGION/AWS_DEFAULT_REGION/BEDROCK_AWS_REGION set anywhere: this
     # must not raise, since the caller decided "us-east-1" is an acceptable
     # default and passed it in directly.
     session = resolve_bedrock_aws_session("us-east-1")
 
-    assert session == {
-        "aws_access_key_id": "AKIA-TEMP",
-        "aws_secret_access_key": "secret-temp",
-        "aws_session_token": "token-temp",
-        "region_name": "us-east-1",
-    }
+    assert session is not None
+    assert session.region_name == "us-east-1"
 
 
 # --------------------------------------------------------------------------- #

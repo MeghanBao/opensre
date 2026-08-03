@@ -263,6 +263,16 @@ def test_bedrock_llm_client_treats_empty_bedrock_region_as_unset(monkeypatch) ->
     assert client._aws_region == "us-west-2"
 
 
+def test_bedrock_llm_client_strips_whitespace_from_region(monkeypatch) -> None:
+    """A shell-provided ' us-east-1' must be normalized before reaching the
+    SDK, which rejects a region string containing whitespace."""
+    monkeypatch.setenv("BEDROCK_AWS_REGION", " us-east-1 ")
+
+    client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
+
+    assert client._aws_region == "us-east-1"
+
+
 def test_bedrock_client_routes_mistral_to_converse(monkeypatch) -> None:
     monkeypatch.setattr(
         "platform.guardrails.engine.get_guardrail_engine",

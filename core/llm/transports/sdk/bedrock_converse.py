@@ -50,14 +50,17 @@ def _assumed_bedrock_role_credentials(region: str) -> dict[str, Any] | None:
     """Raw STS credentials from ``BEDROCK_AWS_ROLE_ARN``, or ``None`` if unset.
 
     A single ``sts:AssumeRole`` snapshot, same shape as
-    ``integrations/aws/verifier.py::_build_sts_client``. The returned
-    credentials are valid for the assumed role's session duration (its
-    ``MaxSessionDuration``, often 1 hour unless the role is configured
-    longer) and do not refresh themselves — a cached client that outlives
-    that window needs to be recreated. Prefer ``BEDROCK_AWS_PROFILE`` with a
-    role_arn + source_profile pair in ``~/.aws/config`` when a process runs
-    longer than that: :func:`resolve_bedrock_aws_session` builds a
-    self-refreshing session for a named profile.
+    ``integrations/aws/verifier.py::_build_sts_client``. Used only by
+    :func:`resolve_bedrock_anthropic_kwargs`: ``AnthropicBedrock`` has no
+    hook for a refreshable credentials provider, so its credentials are
+    necessarily a one-time snapshot, valid for the assumed role's session
+    duration (its ``MaxSessionDuration``, often 1 hour unless the role is
+    configured longer) — a cached ``AnthropicBedrock`` client that outlives
+    that window needs to be recreated. The ``boto3``-backed Bedrock clients
+    do not have this limitation: :func:`resolve_bedrock_aws_session` builds
+    a self-refreshing session for ``BEDROCK_AWS_ROLE_ARN`` via
+    :func:`_refreshable_role_session`, and for ``BEDROCK_AWS_PROFILE`` boto3
+    refreshes a role_arn-backed profile automatically.
     """
     role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
     if not role_arn:
@@ -75,6 +78,46 @@ def _assumed_bedrock_role_credentials(region: str) -> dict[str, Any] | None:
         assume_role_kwargs["ExternalId"] = external_id
     credentials: dict[str, Any] = sts.assume_role(**assume_role_kwargs)["Credentials"]
     return credentials
+
+
+def _refreshable_role_session(*, role_arn: str, external_id: str, region: str) -> boto3.Session:
+    """A ``boto3.Session`` that re-assumes ``role_arn`` itself as credentials near expiry.
+
+    Unlike a one-time ``sts:AssumeRole`` snapshot, this never goes stale for a
+    long-lived cached client: ``DeferredRefreshableCredentials`` calls
+    ``fetcher.fetch_credentials`` (issuing a fresh ``AssumeRole``) whenever
+    boto3 asks for credentials and the cached ones are near or past their
+    expiry, the same mechanism boto3 uses internally for a profile configured
+    with ``role_arn`` + ``source_profile``. Requires some base ambient
+    identity to perform the ``AssumeRole`` call itself (the same requirement
+    the one-time snapshot already had); if there is none, the first refresh
+    raises ``NoCredentialsError`` when a Bedrock call is actually made.
+    """
+    import boto3
+    import botocore.session
+    from botocore.credentials import AssumeRoleCredentialFetcher, DeferredRefreshableCredentials
+
+    extra_args: dict[str, str] = {"RoleSessionName": "OpenSREBedrockInvoke"}
+    if external_id:
+        extra_args["ExternalId"] = external_id
+
+    botocore_session = botocore.session.Session()
+    fetcher = AssumeRoleCredentialFetcher(
+        client_creator=botocore_session.create_client,  # type: ignore[arg-type]
+        source_credentials=botocore_session.get_credentials(),
+        role_arn=role_arn,
+        extra_args=extra_args,
+    )
+    # Pre-seed the lazy credential slot get_credentials() checks before
+    # resolving from scratch — the same mechanism botocore itself uses
+    # internally for a profile configured with role_arn + source_profile.
+    # Not part of the public stub surface, but a real, stable botocore
+    # mechanism (see botocore.session.Session.get_credentials).
+    botocore_session._credentials = DeferredRefreshableCredentials(  # type: ignore[attr-defined]
+        method="assume-role",
+        refresh_using=fetcher.fetch_credentials,
+    )
+    return boto3.Session(botocore_session=botocore_session, region_name=region)
 
 
 def resolve_bedrock_aws_session(region: str) -> boto3.Session | None:
@@ -95,25 +138,23 @@ def resolve_bedrock_aws_session(region: str) -> boto3.Session | None:
     accept.
 
     ``BEDROCK_AWS_ROLE_ARN`` takes precedence — an explicit assume-role, for
-    deployments with no ``~/.aws/config`` profile file (e.g. Fargate).
+    deployments with no ``~/.aws/config`` profile file (e.g. Fargate). The
+    returned session self-refreshes (see :func:`_refreshable_role_session`),
+    so a long-lived cached client using the ``boto3``-backed Converse clients
+    (:func:`resolve_bedrock_anthropic_kwargs` covers ``AnthropicBedrock``,
+    which cannot use a refreshable session) never goes stale.
     ``BEDROCK_AWS_PROFILE`` is a named profile, which may itself be an
     AssumeRole + source_profile pair — the shape the issue's own setup used;
-    boto3 refreshes that automatically, since the profile is passed straight
-    through rather than resolved once and frozen. Returns ``None`` when
-    neither is set, so callers fall through to today's exact ambient-chain
-    behavior; this function never changes behavior for a caller who hasn't
-    opted in.
+    boto3 refreshes that automatically too. Returns ``None`` when neither is
+    set, so callers fall through to today's exact ambient-chain behavior;
+    this function never changes behavior for a caller who hasn't opted in.
     """
     import boto3
 
-    credentials = _assumed_bedrock_role_credentials(region)
-    if credentials is not None:
-        return boto3.Session(
-            aws_access_key_id=credentials["AccessKeyId"],
-            aws_secret_access_key=credentials["SecretAccessKey"],
-            aws_session_token=credentials["SessionToken"],
-            region_name=region,
-        )
+    role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
+    if role_arn:
+        external_id = os.getenv(BEDROCK_AWS_EXTERNAL_ID_ENV, "").strip()
+        return _refreshable_role_session(role_arn=role_arn, external_id=external_id, region=region)
 
     profile = os.getenv(BEDROCK_AWS_PROFILE_ENV, "").strip()
     if profile:

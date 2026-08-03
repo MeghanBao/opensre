@@ -46,7 +46,7 @@ def require_aws_region() -> str:
     return region
 
 
-def _assumed_bedrock_role_credentials(region: str) -> dict[str, str] | None:
+def _assumed_bedrock_role_credentials(region: str) -> dict[str, Any] | None:
     """Raw STS credentials from ``BEDROCK_AWS_ROLE_ARN``, or ``None`` if unset.
 
     A single ``sts:AssumeRole`` snapshot, same shape as
@@ -73,7 +73,7 @@ def _assumed_bedrock_role_credentials(region: str) -> dict[str, str] | None:
     }
     if external_id:
         assume_role_kwargs["ExternalId"] = external_id
-    credentials: dict[str, str] = sts.assume_role(**assume_role_kwargs)["Credentials"]
+    credentials: dict[str, Any] = sts.assume_role(**assume_role_kwargs)["Credentials"]
     return credentials
 
 

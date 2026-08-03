@@ -407,7 +407,7 @@ class BedrockLLMClient:
         self, *, model: str, max_tokens: int = 1024, temperature: float | None = None
     ) -> None:
         from core.llm.transports.sdk.bedrock_converse import (
-            frozen_bedrock_credentials,
+            resolve_bedrock_anthropic_kwargs,
             resolve_bedrock_aws_session,
         )
 
@@ -419,26 +419,25 @@ class BedrockLLMClient:
         # the same permissive AWS_REGION/AWS_DEFAULT_REGION/us-east-1 chain
         # this class has always used (unlike the agent-loop Bedrock clients,
         # this one does not require a region to be configured explicitly).
-        self._aws_region = os.getenv(
-            BEDROCK_AWS_REGION_ENV,
-            os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+        # The `or` chain (not nested os.getenv defaults) matters: a variable
+        # present but set to "" must fall through too, not short-circuit on
+        # an empty string.
+        self._aws_region = (
+            os.getenv(BEDROCK_AWS_REGION_ENV)
+            or os.getenv("AWS_REGION")
+            or os.getenv("AWS_DEFAULT_REGION")
+            or "us-east-1"
         )
-        session = resolve_bedrock_aws_session()
 
         if self._use_anthropic:
-            if session is not None:
-                frozen = frozen_bedrock_credentials(session)
-                self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(
-                    aws_access_key=frozen.access_key,
-                    aws_secret_key=frozen.secret_key,
-                    aws_session_token=frozen.token,
-                    aws_region=self._aws_region,
-                )
-            else:
-                self._anthropic_client = AnthropicBedrock(aws_region=self._aws_region)
+            self._anthropic_client: AnthropicBedrock | None = AnthropicBedrock(
+                aws_region=self._aws_region,
+                **resolve_bedrock_anthropic_kwargs(self._aws_region),
+            )
             self._boto3_client: Any = None
         else:
             self._anthropic_client = None
+            session = resolve_bedrock_aws_session(self._aws_region)
             if session is not None:
                 self._boto3_client = session.client("bedrock-runtime", region_name=self._aws_region)
             else:

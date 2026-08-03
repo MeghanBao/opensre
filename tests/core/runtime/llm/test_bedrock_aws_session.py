@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 
 from core.llm.transports.sdk.bedrock_converse import (
-    frozen_bedrock_credentials,
     require_aws_region,
+    resolve_bedrock_anthropic_kwargs,
     resolve_bedrock_aws_session,
 )
 
@@ -55,7 +55,7 @@ def test_require_aws_region_falls_back_to_aws_region(monkeypatch: pytest.MonkeyP
 
 
 # --------------------------------------------------------------------------- #
-# resolve_bedrock_aws_session                                                 #
+# resolve_bedrock_aws_session (boto3.client consumers)                        #
 # --------------------------------------------------------------------------- #
 
 
@@ -65,7 +65,7 @@ def test_resolve_bedrock_aws_session_returns_none_when_unset(
     """No override set: callers must fall through to today's ambient-chain behavior."""
     _clear_bedrock_env(monkeypatch)
 
-    assert resolve_bedrock_aws_session() is None
+    assert resolve_bedrock_aws_session("us-east-1") is None
 
 
 def test_resolve_bedrock_aws_session_uses_profile(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,7 +79,7 @@ def test_resolve_bedrock_aws_session_uses_profile(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr("boto3.Session", _FakeSession)
 
-    session = resolve_bedrock_aws_session()
+    session = resolve_bedrock_aws_session("us-east-1")
 
     assert isinstance(session, _FakeSession)
     assert calls == [{"profile_name": "bedrock-account"}]
@@ -87,7 +87,6 @@ def test_resolve_bedrock_aws_session_uses_profile(monkeypatch: pytest.MonkeyPatc
 
 def test_resolve_bedrock_aws_session_assumes_role(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_bedrock_env(monkeypatch)
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
     monkeypatch.setenv("BEDROCK_AWS_EXTERNAL_ID", "shared-secret")
 
@@ -116,7 +115,7 @@ def test_resolve_bedrock_aws_session_assumes_role(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("boto3.client", _fake_boto3_client)
     monkeypatch.setattr("boto3.Session", _FakeSession)
 
-    session = resolve_bedrock_aws_session()
+    session = resolve_bedrock_aws_session("us-east-1")
 
     assert isinstance(session, _FakeSession)
     assert assume_role_calls == [
@@ -141,7 +140,6 @@ def test_resolve_bedrock_aws_session_role_arn_takes_precedence_over_profile(
 ) -> None:
     """Both set: the explicit assume-role wins, the profile is never touched."""
     _clear_bedrock_env(monkeypatch)
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
     monkeypatch.setenv("BEDROCK_AWS_PROFILE", "should-be-ignored")
 
@@ -164,7 +162,7 @@ def test_resolve_bedrock_aws_session_role_arn_takes_precedence_over_profile(
     monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
     monkeypatch.setattr("boto3.Session", _FakeSession)
 
-    resolve_bedrock_aws_session()
+    resolve_bedrock_aws_session("us-east-1")
 
     assert len(session_calls) == 1
     assert "profile_name" not in session_calls[0]
@@ -175,7 +173,6 @@ def test_resolve_bedrock_aws_session_role_arn_without_external_id(
 ) -> None:
     """ExternalId is optional; omit it entirely rather than sending an empty string."""
     _clear_bedrock_env(monkeypatch)
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
 
     assume_role_calls: list[dict[str, Any]] = []
@@ -194,36 +191,89 @@ def test_resolve_bedrock_aws_session_role_arn_without_external_id(
     monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
     monkeypatch.setattr("boto3.Session", lambda **_kwargs: object())
 
-    resolve_bedrock_aws_session()
+    resolve_bedrock_aws_session("us-east-1")
 
     assert "ExternalId" not in assume_role_calls[0]
 
 
+def test_resolve_bedrock_aws_session_never_requires_a_region_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller's region is a parameter, not re-derived (regression: a
+    BEDROCK_AWS_ROLE_ARN-only config must not reject a caller's own
+    permissive us-east-1 default just because AWS_REGION is unset)."""
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+
+    class _FakeStsClient:
+        def assume_role(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "Credentials": {
+                    "AccessKeyId": "AKIA-TEMP",
+                    "SecretAccessKey": "secret-temp",
+                    "SessionToken": "token-temp",
+                }
+            }
+
+    monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
+    monkeypatch.setattr("boto3.Session", lambda **kwargs: kwargs)
+
+    # No AWS_REGION/AWS_DEFAULT_REGION/BEDROCK_AWS_REGION set anywhere: this
+    # must not raise, since the caller decided "us-east-1" is an acceptable
+    # default and passed it in directly.
+    session = resolve_bedrock_aws_session("us-east-1")
+
+    assert session == {
+        "aws_access_key_id": "AKIA-TEMP",
+        "aws_secret_access_key": "secret-temp",
+        "aws_session_token": "token-temp",
+        "region_name": "us-east-1",
+    }
+
+
 # --------------------------------------------------------------------------- #
-# frozen_bedrock_credentials                                                  #
+# resolve_bedrock_anthropic_kwargs (AnthropicBedrock consumers)                #
 # --------------------------------------------------------------------------- #
 
 
-def test_frozen_bedrock_credentials_returns_frozen_credentials() -> None:
-    sentinel = object()
+def test_resolve_bedrock_anthropic_kwargs_empty_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_bedrock_env(monkeypatch)
 
-    class _FakeCredentials:
-        def get_frozen_credentials(self) -> object:
-            return sentinel
-
-    class _FakeSession:
-        def get_credentials(self) -> _FakeCredentials:
-            return _FakeCredentials()
-
-    assert frozen_bedrock_credentials(_FakeSession()) is sentinel
+    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {}
 
 
-def test_frozen_bedrock_credentials_raises_a_clear_error_when_unresolved() -> None:
-    """A profile with no configured credentials must not crash with an AttributeError."""
+def test_resolve_bedrock_anthropic_kwargs_passes_profile_through_unresolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A named profile must reach AnthropicBedrock as aws_profile=, not be
+    resolved-and-frozen into static keys — freezing would silently drop the
+    refresh a role_arn + source_profile pair in ~/.aws/config provides."""
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_PROFILE", "bedrock-account")
 
-    class _FakeSession:
-        def get_credentials(self) -> None:
-            return None
+    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {"aws_profile": "bedrock-account"}
 
-    with pytest.raises(RuntimeError, match="BEDROCK_AWS_PROFILE"):
-        frozen_bedrock_credentials(_FakeSession())
+
+def test_resolve_bedrock_anthropic_kwargs_assumes_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_bedrock_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+
+    class _FakeStsClient:
+        def assume_role(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "Credentials": {
+                    "AccessKeyId": "AKIA-TEMP",
+                    "SecretAccessKey": "secret-temp",
+                    "SessionToken": "token-temp",
+                }
+            }
+
+    monkeypatch.setattr("boto3.client", lambda *_a, **_k: _FakeStsClient())
+
+    assert resolve_bedrock_anthropic_kwargs("us-east-1") == {
+        "aws_access_key": "AKIA-TEMP",
+        "aws_secret_key": "secret-temp",
+        "aws_session_token": "token-temp",
+    }

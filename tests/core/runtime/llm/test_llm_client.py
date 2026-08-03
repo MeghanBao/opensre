@@ -217,6 +217,52 @@ def test_is_anthropic_bedrock_model_application_inference_profile_arn() -> None:
     assert not sdk_llm.is_anthropic_bedrock_model(profile_arn)
 
 
+def test_bedrock_llm_client_role_arn_without_any_region_uses_permissive_default(
+    monkeypatch,
+) -> None:
+    """BEDROCK_AWS_ROLE_ARN set with no region env var anywhere must not reject
+    a config that would otherwise default to us-east-1 (#4482 round 2): the
+    session resolver must use the caller's own already-resolved region
+    instead of independently re-requiring one."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("BEDROCK_AWS_REGION", raising=False)
+    monkeypatch.setenv("BEDROCK_AWS_ROLE_ARN", "arn:aws:iam::999:role/BedrockInvoke")
+
+    class _FakeStsClient:
+        def assume_role(self, **_kwargs) -> dict:
+            return {
+                "Credentials": {
+                    "AccessKeyId": "AKIA-TEMP",
+                    "SecretAccessKey": "secret-temp",
+                    "SessionToken": "token-temp",
+                }
+            }
+
+    class _FakeSession:
+        def client(self, _service: str, **_kwargs) -> object:
+            return _RecordingBedrockRuntime({"output": {"message": {"content": []}}})
+
+    monkeypatch.setattr(sdk_llm.boto3, "client", lambda *_a, **_k: _FakeStsClient())
+    monkeypatch.setattr(sdk_llm.boto3, "Session", lambda **_kwargs: _FakeSession())
+
+    client = sdk_llm.BedrockLLMClient(model="mistral.mistral-large-2402-v1:0")
+
+    assert client._aws_region == "us-east-1"
+
+
+def test_bedrock_llm_client_treats_empty_bedrock_region_as_unset(monkeypatch) -> None:
+    """BEDROCK_AWS_REGION="" must fall through to AWS_REGION, not become the
+    literal empty string (a plain os.getenv(name, default) does not treat a
+    present-but-empty value as unset)."""
+    monkeypatch.setenv("BEDROCK_AWS_REGION", "")
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+
+    client = sdk_llm.BedrockLLMClient(model="anthropic.claude-test")
+
+    assert client._aws_region == "us-west-2"
+
+
 def test_bedrock_client_routes_mistral_to_converse(monkeypatch) -> None:
     monkeypatch.setattr(
         "platform.guardrails.engine.get_guardrail_engine",
@@ -262,7 +308,7 @@ def test_bedrock_llm_client_converse_uses_resolved_session_when_configured(
 
     monkeypatch.setattr(
         "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
-        lambda: _FakeSession(),
+        lambda _region: _FakeSession(),
     )
     monkeypatch.setattr(
         sdk_llm.boto3,
@@ -283,21 +329,13 @@ def test_bedrock_llm_client_anthropic_uses_resolved_session_credentials(monkeypa
         _InactiveGuardrailEngine,
     )
 
-    class _FakeFrozenCredentials:
-        access_key = "AKIA-BEDROCK"
-        secret_key = "secret-bedrock"
-        token = "token-bedrock"
-
-    class _FakeSession:
-        pass
-
     monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
-        lambda: _FakeSession(),
-    )
-    monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.frozen_bedrock_credentials",
-        lambda _session: _FakeFrozenCredentials(),
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
+        lambda _region: {
+            "aws_access_key": "AKIA-BEDROCK",
+            "aws_secret_key": "secret-bedrock",
+            "aws_session_token": "token-bedrock",
+        },
     )
     calls: list[dict] = []
     monkeypatch.setattr(

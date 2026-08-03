@@ -46,7 +46,38 @@ def require_aws_region() -> str:
     return region
 
 
-def resolve_bedrock_aws_session() -> boto3.Session | None:
+def _assumed_bedrock_role_credentials(region: str) -> dict[str, str] | None:
+    """Raw STS credentials from ``BEDROCK_AWS_ROLE_ARN``, or ``None`` if unset.
+
+    A single ``sts:AssumeRole`` snapshot, same shape as
+    ``integrations/aws/verifier.py::_build_sts_client``. The returned
+    credentials are valid for the assumed role's session duration (its
+    ``MaxSessionDuration``, often 1 hour unless the role is configured
+    longer) and do not refresh themselves — a cached client that outlives
+    that window needs to be recreated. Prefer ``BEDROCK_AWS_PROFILE`` with a
+    role_arn + source_profile pair in ``~/.aws/config`` when a process runs
+    longer than that: :func:`resolve_bedrock_aws_session` builds a
+    self-refreshing session for a named profile.
+    """
+    role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
+    if not role_arn:
+        return None
+
+    import boto3
+
+    external_id = os.getenv(BEDROCK_AWS_EXTERNAL_ID_ENV, "").strip()
+    sts = boto3.client("sts", region_name=region)
+    assume_role_kwargs: dict[str, str] = {
+        "RoleArn": role_arn,
+        "RoleSessionName": "OpenSREBedrockInvoke",
+    }
+    if external_id:
+        assume_role_kwargs["ExternalId"] = external_id
+    credentials: dict[str, str] = sts.assume_role(**assume_role_kwargs)["Credentials"]
+    return credentials
+
+
+def resolve_bedrock_aws_session(region: str) -> boto3.Session | None:
     """Isolate Bedrock's AWS identity from the ambient default credential chain.
 
     Investigation tools (EC2, CloudWatch, ...) already work correctly across
@@ -57,28 +88,26 @@ def resolve_bedrock_aws_session() -> boto3.Session | None:
     investigated had no way to give Bedrock a *different* identity than
     whatever profile was active for everything else (#4482).
 
+    ``region`` is the caller's own already-resolved region (each of the three
+    Bedrock clients has a different region-resolution policy — two raise when
+    unset, one defaults to ``us-east-1``); this function does not re-derive
+    or require it, so it can't reject a config a caller would otherwise
+    accept.
+
     ``BEDROCK_AWS_ROLE_ARN`` takes precedence — an explicit assume-role, for
     deployments with no ``~/.aws/config`` profile file (e.g. Fargate).
     ``BEDROCK_AWS_PROFILE`` is a named profile, which may itself be an
-    AssumeRole + source_profile pair — the shape the issue's own setup used.
-    Returns ``None`` when neither is set, so callers fall through to today's
-    exact ambient-chain behavior; this function never changes behavior for a
-    caller who hasn't opted in.
+    AssumeRole + source_profile pair — the shape the issue's own setup used;
+    boto3 refreshes that automatically, since the profile is passed straight
+    through rather than resolved once and frozen. Returns ``None`` when
+    neither is set, so callers fall through to today's exact ambient-chain
+    behavior; this function never changes behavior for a caller who hasn't
+    opted in.
     """
     import boto3
 
-    role_arn = os.getenv(BEDROCK_AWS_ROLE_ARN_ENV, "").strip()
-    if role_arn:
-        region = require_aws_region()
-        external_id = os.getenv(BEDROCK_AWS_EXTERNAL_ID_ENV, "").strip()
-        sts = boto3.client("sts", region_name=region)
-        assume_role_kwargs: dict[str, str] = {
-            "RoleArn": role_arn,
-            "RoleSessionName": "OpenSREBedrockInvoke",
-        }
-        if external_id:
-            assume_role_kwargs["ExternalId"] = external_id
-        credentials = sts.assume_role(**assume_role_kwargs)["Credentials"]
+    credentials = _assumed_bedrock_role_credentials(region)
+    if credentials is not None:
         return boto3.Session(
             aws_access_key_id=credentials["AccessKeyId"],
             aws_secret_access_key=credentials["SecretAccessKey"],
@@ -93,21 +122,38 @@ def resolve_bedrock_aws_session() -> boto3.Session | None:
     return None
 
 
-def frozen_bedrock_credentials(session: boto3.Session) -> Any:
-    """Resolved static credentials ``AnthropicBedrock`` needs as explicit kwargs.
+def resolve_bedrock_anthropic_kwargs(region: str) -> dict[str, Any]:
+    """``AnthropicBedrock`` auth kwargs for a cross-account Bedrock override.
 
-    Raises a clear error if the session (from :func:`resolve_bedrock_aws_session`)
-    cannot resolve credentials at all, e.g. ``BEDROCK_AWS_PROFILE`` names a
-    profile with no credentials configured.
+    ``AnthropicBedrock`` only accepts a profile name (which it resolves, and
+    refreshes, itself) or fully static access/secret/session-token strings —
+    unlike ``boto3.Session``, there is no hook for a refreshable credentials
+    provider, so the two overrides are necessarily handled differently:
+
+    - ``BEDROCK_AWS_PROFILE`` is passed straight through as ``aws_profile``,
+      so whatever refresh the named profile supports keeps working (a
+      role_arn + source_profile pair in ``~/.aws/config`` auto-refreshes).
+    - ``BEDROCK_AWS_ROLE_ARN`` has no such hook: the returned credentials are
+      a one-time snapshot (see :func:`_assumed_bedrock_role_credentials`),
+      valid only for the assumed role's session duration.
+
+    Returns an empty dict when neither override is set, so callers fall
+    through to today's exact ambient-chain behavior (``AnthropicBedrock``
+    with no explicit credentials).
     """
-    credentials = session.get_credentials()
-    if credentials is None:
-        raise RuntimeError(
-            "Could not resolve AWS credentials for the Bedrock session. "
-            "Check BEDROCK_AWS_PROFILE (does the named profile have credentials?) "
-            "or BEDROCK_AWS_ROLE_ARN."
-        )
-    return credentials.get_frozen_credentials()
+    credentials = _assumed_bedrock_role_credentials(region)
+    if credentials is not None:
+        return {
+            "aws_access_key": credentials["AccessKeyId"],
+            "aws_secret_key": credentials["SecretAccessKey"],
+            "aws_session_token": credentials["SessionToken"],
+        }
+
+    profile = os.getenv(BEDROCK_AWS_PROFILE_ENV, "").strip()
+    if profile:
+        return {"aws_profile": profile}
+
+    return {}
 
 
 def new_tool_use_id() -> str:

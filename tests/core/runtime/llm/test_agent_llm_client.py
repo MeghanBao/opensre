@@ -92,8 +92,8 @@ def test_bedrock_client_uses_ambient_chain_when_no_override_configured(
     fake_anthropic = _install_fake_anthropic(monkeypatch)
     monkeypatch.setenv("AWS_REGION", "us-west-2")
     monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
-        lambda: None,
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
+        lambda _region: {},
     )
     calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
 
@@ -111,21 +111,13 @@ def test_bedrock_client_uses_resolved_session_credentials_when_configured(
     fake_anthropic = _install_fake_anthropic(monkeypatch)
     monkeypatch.setenv("AWS_REGION", "us-west-2")
 
-    class _FakeFrozenCredentials:
-        access_key = "AKIA-BEDROCK"
-        secret_key = "secret-bedrock"
-        token = "token-bedrock"
-
-    class _FakeSession:
-        pass
-
     monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
-        lambda: _FakeSession(),
-    )
-    monkeypatch.setattr(
-        "core.llm.transports.sdk.bedrock_converse.frozen_bedrock_credentials",
-        lambda _session: _FakeFrozenCredentials(),
+        "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_anthropic_kwargs",
+        lambda _region: {
+            "aws_access_key": "AKIA-BEDROCK",
+            "aws_secret_key": "secret-bedrock",
+            "aws_session_token": "token-bedrock",
+        },
     )
     calls = _record_anthropic_bedrock_init_kwargs(fake_anthropic)
 
@@ -1701,7 +1693,7 @@ def test_bedrock_converse_uses_resolved_session_client_when_configured(
 
     monkeypatch.setattr(
         "core.llm.transports.sdk.bedrock_converse.resolve_bedrock_aws_session",
-        lambda: _FakeSession(),
+        lambda _region: _FakeSession(),
     )
     monkeypatch.setattr(
         "boto3.client",

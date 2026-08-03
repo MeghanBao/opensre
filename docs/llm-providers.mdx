@@ -343,6 +343,8 @@ export BEDROCK_AWS_REGION=us-east-1
 
 `BEDROCK_AWS_ROLE_ARN` takes precedence when both are set. Neither variable changes behavior when unset — Bedrock keeps using the same ambient credential chain as everything else.
 
+`BEDROCK_AWS_PROFILE` refreshes automatically for as long as the process runs, the same as any other AssumeRole profile. `BEDROCK_AWS_ROLE_ARN` is a one-time credential snapshot valid for the assumed role's session duration (its `MaxSessionDuration`, often 1 hour unless the role is configured longer) — a long-running process that outlives that window needs its LLM clients recreated (e.g. via `/model` in the interactive shell). Prefer `BEDROCK_AWS_PROFILE` with a role_arn + source_profile pair in `~/.aws/config` if the process runs longer than that.
+
 ### Google Vertex AI
 
 ```bash

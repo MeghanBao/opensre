@@ -195,9 +195,11 @@ regression, or a Greptile finding can still block merge. After every push:
 
 3. **Fix, don't rubber-stamp.** Verify a flagged issue is real before patching
    — read the affected code path, don't just apply the suggested diff blind.
-   Add or extend a test that would have caught it. Re-run the relevant checks
-   from §1–3 locally, push, and repeat from step 1 until CI is green and
-   Greptile is 5/5 with no unresolved threads.
+   Where a test can capture the defect, add or extend one — this doesn't apply
+   to docs/process-only changes (§0) or config-only fixes with no unit-testable
+   behavior (e.g. an `.importlinter.strict` allowlist entry). Re-run the
+   relevant checks from §1–3 locally, push, and repeat from step 1 until CI is
+   green and Greptile is 5/5 with no unresolved threads.
 
 ## Precedence
 

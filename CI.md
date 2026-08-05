@@ -151,6 +151,54 @@ Some paths require live infrastructure and are excluded from `make test-cov`:
 
 Mark CI-only tests with the appropriate pytest marker or place them in the correct folder so they do not run locally by default.
 
+## 8) After pushing / opening a PR
+
+Passing local checks is necessary, not sufficient — a stale branch, a main-side
+regression, or a Greptile finding can still block merge. After every push:
+
+1. **Check CI status.**
+
+   ```bash
+   gh pr checks <PR#> --repo Tracer-Cloud/opensre
+   ```
+
+   For a failing job, pull its log before touching code:
+
+   ```bash
+   gh run view <run-id> --repo Tracer-Cloud/opensre --job <job-id> --log-failed
+   ```
+
+   Attribute root cause before fixing anything — **PR-caused** (your diff broke
+   it: fix it) vs **pre-existing/main-side** (fails identically on a clean
+   `upstream/main` checkout of the same file: do not "fix" it in your PR).
+   Check `gh pr view <PR#> --json mergeStateStatus` first: `BEHIND` means your
+   branch is stale, and GitHub Actions checks out the *synthetic merge* of
+   your branch with current `main` (`refs/pull/<PR#>/merge`), not your raw
+   branch head — a stale branch can produce a failure that reproduces on
+   neither side alone. Merge (or rebase) the current base branch into yours
+   and re-push before investigating further; that alone resolves most of
+   these.
+
+2. **Check for review feedback.** Greptile posts automatically; trigger or
+   re-trigger it with a PR comment:
+
+   ```
+   @greptile review
+   ```
+
+   Read findings via `gh pr view <PR#> --json comments,reviews`, or the
+   Greptile summary comment on the PR. See
+   [CONTRIBUTING.md § Greptile Code Review](CONTRIBUTING.md#greptile-code-review)
+   for the confidence-score bar (5/5, zero unresolved) and the
+   [greploop skill](https://skills.sh/greptileai/skills/greploop) that
+   automates the trigger/wait/fix/re-review loop.
+
+3. **Fix, don't rubber-stamp.** Verify a flagged issue is real before patching
+   — read the affected code path, don't just apply the suggested diff blind.
+   Add or extend a test that would have caught it. Re-run the relevant checks
+   from §1–3 locally, push, and repeat from step 1 until CI is green and
+   Greptile is 5/5 with no unresolved threads.
+
 ## Precedence
 
 If readiness instructions conflict across docs, **this file wins** for push/PR checks.

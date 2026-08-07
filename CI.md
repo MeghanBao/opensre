@@ -76,28 +76,15 @@ the full unit suite.
 Map changed paths to targets using the `PathRule` entries in
 [`.github/ci/test_scope_rules.py`](.github/ci/test_scope_rules.py):
 
-- Rules with `always_escalate=True` map to `make test-cov`
+- Rules with `always_escalate=True` have no scoped local target — the full
+  suite runs in CI; no local run is required
 - All other rules list a `test_targets` tuple — run those with
   `uv run python -m pytest <targets>`
 - Changed files under `tests/` with no app rule run as-is
 
 Use a focused `-k` filter when you only need a subset of a package.
 
-## 3) Escalation rules (must run full unit CI suite)
-
-Run `make test-cov` (instead of only targeted tests) when any of these are true:
-
-- Shared/core code changed (`core/state/`, `core/domain/types/`, `tools/investigation/`, `tools/investigation/stages/`)
-- 3+ app areas changed in one diff
-- New files with unclear blast radius
-- Cross-cutting refactor
-- You are unsure test scope is sufficient
-
-```bash
-make test-cov
-```
-
-## 4) Conditional checks
+## 3) Conditional checks
 
 CI runs the fast registry smoke gate on every code change:
 
@@ -114,11 +101,11 @@ make verify-integrations
 If Fargate CDK code, its deployment commands, or infrastructure tests changed,
 also run:
 
-## 5) Optional extra confidence
+## 4) Optional extra confidence
 
 You may run `make check` as a final pass, but it is heavier (`test-full`) than the required harness.
 
-## 6) Interactive-shell turn tests
+## 5) Interactive-shell turn tests
 
 Interactive-shell live turn tests always run with live coverage enabled. Do not use deselection filters like `-k "not live_llm"`. Fix failures by improving planner/tool correctness or updating fixtures only when behavior changes are explicitly approved.
 
@@ -141,7 +128,7 @@ In CI, [`.github/workflows/interactive-shell-live.yml`](.github/workflows/intera
 
 `@live` gather scenarios **fail** (not skip) in GitHub Actions when integration credentials are missing; locally they may still skip. Natural-language investigation dispatch is **enabled** by default (`INTERACTIVE_SHELL_INVESTIGATION_ENABLED = True`). Investigation dispatch scenarios run in `turn-live`; if the flag is set to `False` for emergency rollback, those scenarios **skip** in live shards and `turn-checks` stays green. Require all `turn-checks` and `turn-live shard *` checks on `main` branch protection.
 
-## 7) CI-only tests
+## 6) CI-only tests
 
 Some paths require live infrastructure and are excluded from `make test-cov`:
 

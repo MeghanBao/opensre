@@ -147,6 +147,20 @@ Some paths require live infrastructure and are excluded from `make test-cov`:
 
 Mark CI-only tests with the appropriate pytest marker or place them in the correct folder so they do not run locally by default.
 
+## 8) Post-PR follow-through
+
+Opening a pull request does not end the validation cycle. Follow it through until
+the repository's merge requirements are satisfied: required GitHub checks are
+green, actionable human or automated review feedback (including Greptile) is
+addressed, and resolved conversations are closed out.
+
+Use relevant built-in capabilities or locally installed skills, when available,
+for PR monitoring, CI diagnosis, and review remediation rather than duplicating
+tool-specific procedures in this document. Keep monitoring after each update;
+do not treat creating or updating the PR as task completion. Validate review
+suggestions before applying them, and rerun the appropriately scoped local
+checks before pushing a fix.
+
 ## Precedence
 
 If readiness instructions conflict across docs, **this file wins** for push/PR checks.

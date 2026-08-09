@@ -9,6 +9,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from gateway.core.runtime.approvals import ApprovalBroker
+from gateway.core.runtime.polling_thread import PollingBackground, start_polling_background
 from gateway.core.runtime.sink_protocol import GatewayAgentCallback
 from gateway.core.storage import SessionResolver
 from gateway.transports.buzz.inbound_handler import handle_polled_inbound_buzz_message
@@ -29,30 +30,6 @@ _APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok",
 _DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
 
 
-class BuzzGatewayBackground:
-    """Control handle for the background Buzz gateway thread."""
-
-    def __init__(
-        self,
-        *,
-        thread: threading.Thread,
-        stop_event: threading.Event,
-    ) -> None:
-        self._thread = thread
-        self._stop_event = stop_event
-
-    def stop(self, *, timeout: float = 8.0) -> bool:
-        """Request shutdown and return whether the thread stopped."""
-        self._stop_event.set()
-        self._thread.join(timeout=timeout)
-        return not self._thread.is_alive()
-
-    def wait(self, *, timeout: float | None = None) -> bool:
-        """Wait for the thread and return whether it has stopped."""
-        self._thread.join(timeout=timeout)
-        return not self._thread.is_alive()
-
-
 def start_buzz_gateway_background(
     *,
     settings: GatewaySettings,
@@ -60,55 +37,33 @@ def start_buzz_gateway_background(
     initialize_runtime: InitializeBuzzPollingRuntime,
     shutdown_runtime: ShutdownBuzzPollingRuntime,
     handle_callback_to_gateway_agent: GatewayAgentCallback,
-) -> BuzzGatewayBackground:
+) -> PollingBackground:
     """Start Buzz mention polling in a background thread."""
-    stop_event = threading.Event()
 
-    thread = threading.Thread(
-        target=_run_buzz_gateway_thread,
-        kwargs={
-            "settings": settings,
-            "stop_event": stop_event,
-            "logger": logger,
-            "initialize_runtime": initialize_runtime,
-            "shutdown_runtime": shutdown_runtime,
-            "handle_callback_to_gateway_agent": handle_callback_to_gateway_agent,
-        },
-        name="BuzzGatewayThread",
-        daemon=True,
-    )
-    thread.start()
+    def _initialize_runtime() -> BuzzPollingRuntime:
+        return initialize_runtime(settings)
 
-    logger.info("[buzz-gateway] polling started")
-    return BuzzGatewayBackground(thread=thread, stop_event=stop_event)
-
-
-def _run_buzz_gateway_thread(
-    *,
-    settings: GatewaySettings,
-    stop_event: threading.Event,
-    logger: logging.Logger,
-    initialize_runtime: InitializeBuzzPollingRuntime,
-    shutdown_runtime: ShutdownBuzzPollingRuntime,
-    handle_callback_to_gateway_agent: GatewayAgentCallback,
-) -> None:
-    """Own Buzz polling resources for the lifetime of the thread."""
-    resources = initialize_runtime(settings)
-
-    try:
-        asyncio.run(
-            _poll_buzz_until_stopped(
-                settings=settings,
-                stop_event=stop_event,
-                logger=logger,
-                resources=resources,
-                handle_callback_to_gateway_agent=handle_callback_to_gateway_agent,
-            )
+    async def _poll_until_stopped(
+        resources: BuzzPollingRuntime,
+        stop_event: threading.Event,
+    ) -> None:
+        await _poll_buzz_until_stopped(
+            settings=settings,
+            stop_event=stop_event,
+            logger=logger,
+            resources=resources,
+            handle_callback_to_gateway_agent=handle_callback_to_gateway_agent,
         )
-    except Exception:
-        logger.critical("Fatal error in Buzz gateway thread", exc_info=True)
-    finally:
-        shutdown_runtime(resources)
+
+    return start_polling_background(
+        thread_name="BuzzGatewayThread",
+        started_message="[buzz-gateway] polling started",
+        fatal_message="Fatal error in Buzz gateway thread",
+        logger=logger,
+        initialize_runtime=_initialize_runtime,
+        poll_until_stopped=_poll_until_stopped,
+        shutdown_runtime=shutdown_runtime,
+    )
 
 
 async def _poll_buzz_until_stopped(
@@ -356,4 +311,4 @@ def _decision(text: str) -> bool | None:
     return None
 
 
-__all__ = ["BuzzGatewayBackground", "start_buzz_gateway_background"]
+__all__ = ["start_buzz_gateway_background"]

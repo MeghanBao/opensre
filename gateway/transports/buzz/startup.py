@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import logging
 
+from gateway.core.runtime.polling_thread import PollingBackground
 from gateway.core.runtime.sink_protocol import GatewayAgentCallback
-from gateway.transports.buzz.background import (
-    BuzzGatewayBackground,
-    start_buzz_gateway_background,
-)
+from gateway.transports.buzz.background import start_buzz_gateway_background
 from gateway.transports.buzz.runtime import (
     initialize_buzz_polling_runtime,
     shutdown_buzz_polling_runtime,
@@ -29,7 +27,7 @@ def start_buzz_worker(
     *,
     logger: logging.Logger,
     handler: GatewayAgentCallback,
-) -> tuple[BuzzGatewayBackground, GatewaySettings]:
+) -> tuple[PollingBackground, GatewaySettings]:
     """Load Buzz settings and start the mention-poll background worker.
 
     ``handler`` is the transport-agnostic per-message callback. Returns the

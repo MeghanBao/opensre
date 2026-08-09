@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import logging
 
+from gateway.core.runtime.polling_thread import PollingBackground
 from gateway.core.runtime.sink_protocol import GatewayAgentCallback
-from gateway.transports.telegram.background import (
-    TelegramGatewayBackground,
-    start_telegram_gateway_background,
-)
+from gateway.transports.telegram.background import start_telegram_gateway_background
 from gateway.transports.telegram.runtime import (
     initialize_telegram_polling_runtime,
     shutdown_telegram_polling_runtime,
@@ -29,7 +27,7 @@ def start_telegram_worker(
     *,
     logger: logging.Logger,
     handler: GatewayAgentCallback,
-) -> tuple[TelegramGatewayBackground, GatewaySettings]:
+) -> tuple[PollingBackground, GatewaySettings]:
     """Load Telegram settings and start the long-poll background worker.
 
     ``handler`` is the transport-agnostic per-message callback. Returns the

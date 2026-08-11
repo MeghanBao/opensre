@@ -21,13 +21,13 @@ import pytest
 from config.constants import paths
 from config.constants.billing import ORGANIZATION_ID_ENV, USAGE_SECRET_ENV, WEBAPP_URL_ENV
 from config.principal import Principal
-from core.agent_harness.session import InMemorySessionStorage, SessionCore, SessionManager
+from core.agent_harness.session import InMemorySessionStore, SessionCore, SessionManager
 from gateway.core.billing.credits_client import CreditsOutcome
 from gateway.core.storage import FileBindingStore, SessionResolver
-from gateway.transports.slack.dispatcher import _SlackTurnDispatcher
-from gateway.transports.slack.events import SlackInboundMessage
-from gateway.transports.slack.principal import slack_scope
-from gateway.transports.slack.security import SlackInboundDecision
+from gateway.transports.slack.inbound.dispatcher import _SlackTurnDispatcher
+from gateway.transports.slack.inbound.events import SlackInboundMessage
+from gateway.transports.slack.inbound.principal import slack_scope
+from gateway.transports.slack.inbound.security import SlackInboundDecision
 from gateway.transports.slack.settings import SlackGatewaySettings
 
 _ORG = "org_dispatcher_concurrency"
@@ -89,7 +89,7 @@ def resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SessionResolver
     monkeypatch.setattr(SessionCore, "hydrate_configured_integrations", lambda _self: None)
     store = FileBindingStore(tmp_path / "bindings.json")
     repo = SimpleNamespace(load_session=lambda _session_id: None)
-    manager = SessionManager(storage=InMemorySessionStorage(), repo=repo)
+    manager = SessionManager(store=InMemorySessionStore(), repo=repo)
     return SessionResolver(store, manager=manager, platform="slack")
 
 
@@ -140,18 +140,21 @@ def allow_all_security():
     decision = SlackInboundDecision(allowed=True)
     with (
         patch(
-            "gateway.transports.slack.dispatcher.enforce_inbound_slack_message_security",
+            "gateway.transports.slack.inbound.dispatcher.enforce_inbound_slack_message_security",
             return_value=decision,
         ),
-        patch("gateway.transports.slack.dispatcher.persist_policy_if_needed"),
-        patch("gateway.transports.slack.dispatcher.session_needs_thread_seed", return_value=False),
+        patch("gateway.transports.slack.inbound.dispatcher.persist_policy_if_needed"),
         patch(
-            "gateway.transports.slack.dispatcher.consume_credits",
+            "gateway.transports.slack.inbound.dispatcher.session_needs_thread_seed",
+            return_value=False,
+        ),
+        patch(
+            "gateway.transports.slack.inbound.dispatcher.consume_credits",
             return_value=CreditsOutcome.UNCONFIGURED,
         ),
-        patch("gateway.transports.slack.dispatcher.mark_turn_working"),
-        patch("gateway.transports.slack.dispatcher.mark_turn_done"),
-        patch("gateway.transports.slack.dispatcher.mark_turn_failed"),
+        patch("gateway.transports.slack.inbound.dispatcher.mark_turn_working"),
+        patch("gateway.transports.slack.inbound.dispatcher.mark_turn_done"),
+        patch("gateway.transports.slack.inbound.dispatcher.mark_turn_failed"),
     ):
         yield
 

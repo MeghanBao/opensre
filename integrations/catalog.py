@@ -5,6 +5,14 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from config.constants.yandex_cloud import (
+    YC_FOLDER_ID_ENV,
+    YC_IAM_TOKEN_ENV,
+    YC_SA_KEY_ENV,
+    YC_SA_KEY_FILE_ENV,
+    YC_TOKEN_ENV,
+    YC_USE_METADATA_ENV,
+)
 from integrations import _catalog_impl
 from integrations.store import load_integrations
 
@@ -167,10 +175,10 @@ def load_env_integration_services() -> list[str]:
         # needs neither. Mirrors the classifier's rule so the banner, health and
         # verification agree on whether it is configured.
         (
-            _env_is_set("YC_FOLDER_ID")
-            and _any_env("YC_SA_KEY_FILE", "YC_SA_KEY", "YC_TOKEN", "YC_IAM_TOKEN")
+            _env_is_set(YC_FOLDER_ID_ENV)
+            and _any_env(YC_SA_KEY_FILE_ENV, YC_SA_KEY_ENV, YC_TOKEN_ENV, YC_IAM_TOKEN_ENV)
         )
-        or os.getenv("YC_USE_METADATA", "").strip().lower() in {"1", "true", "yes", "on"},
+        or os.getenv(YC_USE_METADATA_ENV, "").strip().lower() in {"1", "true", "yes", "on"},
     )
 
     services.extend(_catalog_impl.external_env_presence_services())

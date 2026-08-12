@@ -279,3 +279,78 @@ class TestMetadataTokenTtl:
 
         assert minted is not None
         assert minted.ttl_seconds == metadata._FALLBACK_TTL_SECONDS
+
+
+class TestClientCache:
+    """A cached client must never outlive the credential it was built for."""
+
+    def test_a_rotated_credential_gets_a_fresh_client(self) -> None:
+        from integrations.yandex_cloud.availability import (
+            client_from_params,
+            reset_client_cache,
+        )
+
+        reset_client_cache()
+        old = client_from_params({"folder_id": "b1g", "iam_token": "OLD"})
+        new = client_from_params({"folder_id": "b1g", "iam_token": "NEW"})
+
+        assert old is not new
+        assert new is not None
+        assert new.config.iam_token == "NEW"
+
+    def test_the_same_credential_reuses_the_client(self) -> None:
+        from integrations.yandex_cloud.availability import (
+            client_from_params,
+            reset_client_cache,
+        )
+
+        reset_client_cache()
+        first = client_from_params({"folder_id": "b1g", "iam_token": "t1.token"})
+        again = client_from_params({"folder_id": "b1g", "iam_token": "t1.token"})
+
+        assert first is again
+
+
+class TestEndpointRegistryBackoff:
+    """A failed registry fetch must back off, not retry on every call."""
+
+    def test_a_failed_fetch_is_not_retried_before_the_cache_period(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import integrations.yandex_cloud.endpoints as endpoints
+
+        endpoints.reset_endpoint_cache()
+        attempts = {"n": 0}
+
+        def _fail(*_args: Any, **_kwargs: Any) -> Any:
+            attempts["n"] += 1
+            raise RuntimeError("registry unreachable")
+
+        monkeypatch.setattr(endpoints.httpx, "get", _fail)
+
+        for _ in range(3):
+            resolved = endpoints.known_endpoints()
+
+        assert attempts["n"] == 1
+        # The snapshot still answers, so resolution does not regress.
+        assert "compute" in resolved
+
+
+class TestSetupMetadataFlag:
+    """``use_metadata`` is persisted true only when it is the actual credential."""
+
+    def test_a_key_based_setup_does_not_persist_the_metadata_flag(self) -> None:
+        from integrations.yandex_cloud.setup import _resolve_metadata_flag
+
+        resolved = _resolve_metadata_flag(
+            {"folder_id": "b1g", "sa_key_file": "/tmp/key.json", "use_metadata": "true"}
+        )
+
+        assert resolved.credentials["use_metadata"] is None
+
+    def test_the_metadata_mode_keeps_the_flag(self) -> None:
+        from integrations.yandex_cloud.setup import _resolve_metadata_flag
+
+        resolved = _resolve_metadata_flag({"folder_id": "b1g", "use_metadata": "true"})
+
+        assert resolved.credentials["use_metadata"] == "true"

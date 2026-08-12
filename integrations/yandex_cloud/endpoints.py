@@ -221,12 +221,19 @@ def known_endpoints(*, refresh: bool = True) -> dict[str, str]:
     endpoints = dict(STATIC_ENDPOINTS)
     if refresh:
         with _cache_lock:
+            # ``fetched_at`` starts at zero, so the first call is always expired
+            # and fetches; a failed fetch stamps it too, so the next attempt is
+            # a cache period away rather than on the very next call.
             expired = time.monotonic() - _cache.fetched_at > _REGISTRY_CACHE_TTL_SECONDS
-            if _cache.endpoints is None or expired:
+            if expired:
                 fetched = _fetch_endpoints()
                 if fetched:
                     _cache.endpoints = fetched
-                    _cache.fetched_at = time.monotonic()
+                # Stamp the attempt whether or not it succeeded: a failed fetch
+                # falls back to the snapshot, and without this every later call
+                # would retry the network and pay the timeout again instead of
+                # backing off for the cache period.
+                _cache.fetched_at = time.monotonic()
             cached = _cache.endpoints
         if cached:
             endpoints.update(cached)

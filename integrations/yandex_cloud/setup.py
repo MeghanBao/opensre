@@ -22,7 +22,12 @@ from config.constants.yandex_cloud import (
     YC_TOKEN_ENV,
     YC_USE_METADATA_ENV,
 )
-from integrations.setup_flow import IntegrationSetupSpec, SetupField, SetupMode
+from integrations.setup_flow import (
+    IntegrationSetupSpec,
+    ResolvedCredentials,
+    SetupField,
+    SetupMode,
+)
 from integrations.yandex_cloud import metadata
 from integrations.yandex_cloud.verifier import verify_yandex_cloud
 
@@ -33,6 +38,30 @@ SA_KEY_FIELD = "sa_key"
 OAUTH_TOKEN_FIELD = "oauth_token"
 IAM_TOKEN_FIELD = "iam_token"
 USE_METADATA_FIELD = "use_metadata"
+
+_EXPLICIT_CREDENTIAL_FIELDS = (
+    SA_KEY_FILE_FIELD,
+    SA_KEY_FIELD,
+    OAUTH_TOKEN_FIELD,
+    IAM_TOKEN_FIELD,
+)
+
+
+def _resolve_metadata_flag(credentials: dict[str, str | None]) -> ResolvedCredentials:
+    """Keep ``use_metadata`` on only when it is the actual credential.
+
+    ``use_metadata`` carries a ``"true"`` default so the metadata mode reads as
+    configured on an empty submission. But a mode-gated field cleared for
+    another mode comes back blank, and the collector substitutes that same
+    default - so a key- or token-based setup would persist ``use_metadata=true``
+    next to its real credential. Cleared here rather than in the shared collector
+    so both the wizard and the agent path agree: the flag is true only when no
+    explicit credential was supplied.
+    """
+    if any((credentials.get(field) or "").strip() for field in _EXPLICIT_CREDENTIAL_FIELDS):
+        credentials = {**credentials, USE_METADATA_FIELD: None}
+    return ResolvedCredentials(credentials=credentials)
+
 
 YANDEX_CLOUD_SETUP = IntegrationSetupSpec(
     service="yandex_cloud",
@@ -119,6 +148,7 @@ YANDEX_CLOUD_SETUP = IntegrationSetupSpec(
         ),
     ),
     verify=verify_yandex_cloud,
+    resolve=_resolve_metadata_flag,
 )
 
 

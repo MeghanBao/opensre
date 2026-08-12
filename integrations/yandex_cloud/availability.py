@@ -103,17 +103,16 @@ _client_cache_lock = threading.Lock()
 
 
 def _credential_cache_key(config: YandexCloudIntegrationConfig) -> str:
-    """Identify the client bound to this credential set, without its secrets.
+    """A non-secret cache slot for the client bound to this credential set.
 
-    The key is built from non-sensitive fields only — the folder, the cloud and
-    the auth mode — so a service-account key or token never becomes a dictionary
-    key that a debugger, a crash dump or a stray repr could surface, and no
-    secret is fed to a hash function (CodeQL ``py/weak-sensitive-data-hashing``).
+    Built from non-sensitive fields only — folder, cloud, auth mode — so no
+    secret becomes a dictionary key a debugger or crash dump could surface, and
+    none is fed to a hash function (CodeQL ``py/weak-sensitive-data-hashing``).
 
-    That is enough to keep clients apart in every real case: an OpenSRE process
-    reads one Yandex Cloud account, so two live credential sets differ by folder,
-    cloud or mode. The auth mode already encodes which credential field is in
-    use, so the same account never collides with itself across modes.
+    It is a slot, not an identity: two credential sets for the same account
+    share it, and a rotated secret keeps it. ``client_from_params`` therefore
+    confirms the cached client's config still matches before reusing it, rather
+    than trusting the key alone.
     """
     return "\x00".join((config.folder_id, config.cloud_id, config.auth_mode or ""))
 
@@ -126,6 +125,11 @@ def client_from_params(params: Mapping[str, Any]) -> YandexCloudClient | None:
     call, so a fresh instance per call meant the cache never lived long enough
     to be read: an investigation minted a token — and on a VM, made a metadata
     round-trip for it — once per tool call rather than once per run.
+
+    A cached client is reused only when its config still equals the requested
+    one. The key is non-secret, so a rotated token or key lands on the same
+    slot; without the equality check a long-running gateway would keep handing
+    back a client holding the superseded credential.
     """
     config = config_from_params(params)
     if config is None:
@@ -134,12 +138,13 @@ def client_from_params(params: Mapping[str, Any]) -> YandexCloudClient | None:
     key = _credential_cache_key(config)
     with _client_cache_lock:
         cached = _client_cache.get(key)
-        if cached is not None:
+        if cached is not None and cached.config == config:
             _client_cache.move_to_end(key)
             return cached
 
         client = YandexCloudClient(config)
         _client_cache[key] = client
+        _client_cache.move_to_end(key)
         if len(_client_cache) > _CLIENT_CACHE_SIZE:
             _client_cache.popitem(last=False)
         return client

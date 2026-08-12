@@ -71,11 +71,21 @@ def fetch_token() -> MetadataToken | None:
     if not token:
         return None
 
-    try:
-        expires_in = float(payload.get("expires_in", 0))
-    except (TypeError, ValueError):
-        expires_in = 0.0
-    ttl = max(expires_in - _EXPIRY_SAFETY_SECONDS, 0.0) or _FALLBACK_TTL_SECONDS
+    # The fallback covers a missing or unparseable expires_in, not a small one.
+    # Folding them together (``... or _FALLBACK``) let a token with seconds left
+    # be cached for the full fallback window, so a near-expired token kept being
+    # handed out and cloud reads failed authorization.
+    raw_expires_in = payload.get("expires_in")
+    ttl: float
+    if raw_expires_in is None:
+        ttl = _FALLBACK_TTL_SECONDS
+    else:
+        try:
+            expires_in = float(raw_expires_in)
+        except (TypeError, ValueError):
+            ttl = _FALLBACK_TTL_SECONDS
+        else:
+            ttl = max(expires_in - _EXPIRY_SAFETY_SECONDS, 0.0)
     return MetadataToken(token=token, ttl_seconds=ttl)
 
 

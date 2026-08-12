@@ -8,6 +8,8 @@ would pass while any one of those steps dropped the record.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from config.constants.yandex_cloud import (
@@ -192,3 +194,88 @@ class TestRegistryWiring:
 
         assert service_key("yc") == "yandex_cloud"
         assert service_key("yandex") == "yandex_cloud"
+
+
+class TestPresencePath:
+    """The fast, pre-prompt presence check must agree with the full loader.
+
+    `load_env_integration_services` runs before the first prompt and drives the
+    welcome banner, the REPL and `health`. If it omits a service the full loader
+    accepts, those surfaces contradict `verify` and effective resolution.
+    """
+
+    def test_a_configured_folder_and_token_show(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(YC_FOLDER_ID_ENV, FOLDER)
+        monkeypatch.setenv(YC_IAM_TOKEN_ENV, "t1.token")
+
+        from integrations.catalog import load_env_integration_services
+
+        assert "yandex_cloud" in load_env_integration_services()
+
+    def test_metadata_alone_shows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(YC_FOLDER_ID_ENV, raising=False)
+        monkeypatch.setenv(YC_USE_METADATA_ENV, "true")
+
+        from integrations.catalog import load_env_integration_services
+
+        assert "yandex_cloud" in load_env_integration_services()
+
+    def test_a_bare_folder_does_not_show(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A folder with no credential is not a configured integration."""
+        monkeypatch.setenv(YC_FOLDER_ID_ENV, FOLDER)
+        for name in (YC_IAM_TOKEN_ENV, YC_SA_KEY_FILE_ENV, YC_USE_METADATA_ENV):
+            monkeypatch.delenv(name, raising=False)
+
+        from integrations.catalog import load_env_integration_services
+
+        assert "yandex_cloud" not in load_env_integration_services()
+
+
+class _FakeTokenResponse:
+    """Stands in for the metadata service's token reply."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class TestMetadataTokenTtl:
+    """A metadata token must never be cached past its stated expiry."""
+
+    def _patch_metadata_response(
+        self, monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]
+    ) -> None:
+        from integrations.yandex_cloud import metadata
+
+        def _get(*_args: Any, **_kwargs: Any) -> _FakeTokenResponse:
+            return _FakeTokenResponse(payload)
+
+        monkeypatch.setattr(metadata.httpx, "get", _get)
+
+    def test_a_near_expiry_token_gets_a_short_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Folding the safety margin into `or fallback` cached a dying token for
+        the full fallback window; the two cases must stay separate."""
+        from integrations.yandex_cloud import metadata
+
+        self._patch_metadata_response(monkeypatch, {"access_token": "t1.token", "expires_in": 100})
+
+        minted = metadata.fetch_token()
+
+        assert minted is not None
+        # 100s left minus the 300s safety margin, floored at zero - not 3000.
+        assert minted.ttl_seconds == 0.0
+
+    def test_a_missing_expiry_uses_the_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from integrations.yandex_cloud import metadata
+
+        self._patch_metadata_response(monkeypatch, {"access_token": "t1.token"})
+
+        minted = metadata.fetch_token()
+
+        assert minted is not None
+        assert minted.ttl_seconds == metadata._FALLBACK_TTL_SECONDS

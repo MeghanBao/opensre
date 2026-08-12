@@ -18,9 +18,9 @@ mid-run.
 from __future__ import annotations
 
 import json
-import logging
 import threading
 import time
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Final, NamedTuple
 
@@ -36,8 +36,6 @@ from integrations.yandex_cloud.config import (
     YandexCloudIntegrationConfig,
 )
 from integrations.yandex_cloud.endpoints import resolve_endpoint
-
-logger = logging.getLogger(__name__)
 
 _IAM_SERVICE: Final = "iam"
 _IAM_FALLBACK_HOST: Final = "iam.api.cloud.yandex.net"
@@ -129,7 +127,7 @@ def _exchange(payload: dict[str, str]) -> str:
         response = httpx.post(url, json=payload, timeout=_REQUEST_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
         raise YandexCloudAuthError(f"Could not reach the IAM token endpoint: {exc}") from exc
-    if response.status_code != httpx.codes.OK:
+    if response.status_code != HTTPStatus.OK:
         raise YandexCloudAuthError(
             f"IAM token request was rejected ({response.status_code}): "
             f"{response.text.strip()[:300]}"

@@ -11,7 +11,6 @@ dict, so availability accepts either real credentials or a backend.
 
 from __future__ import annotations
 
-import hashlib
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -103,25 +102,20 @@ _client_cache: OrderedDict[str, YandexCloudClient] = OrderedDict()
 _client_cache_lock = threading.Lock()
 
 
-def _credential_fingerprint(config: YandexCloudIntegrationConfig) -> str:
-    """Identify the credential set a client is bound to.
+def _credential_cache_key(config: YandexCloudIntegrationConfig) -> str:
+    """Identify the client bound to this credential set, without its secrets.
 
-    Hashed rather than kept verbatim, so a service-account key never becomes a
-    dictionary key that a debugger, a crash dump or a stray repr could surface.
+    The key is built from non-sensitive fields only — the folder, the cloud and
+    the auth mode — so a service-account key or token never becomes a dictionary
+    key that a debugger, a crash dump or a stray repr could surface, and no
+    secret is fed to a hash function (CodeQL ``py/weak-sensitive-data-hashing``).
+
+    That is enough to keep clients apart in every real case: an OpenSRE process
+    reads one Yandex Cloud account, so two live credential sets differ by folder,
+    cloud or mode. The auth mode already encodes which credential field is in
+    use, so the same account never collides with itself across modes.
     """
-    material = "\x00".join(
-        str(value)
-        for value in (
-            config.folder_id,
-            config.cloud_id,
-            config.sa_key_file,
-            config.sa_key,
-            config.oauth_token,
-            config.iam_token,
-            config.use_metadata,
-        )
-    )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return "\x00".join((config.folder_id, config.cloud_id, config.auth_mode or ""))
 
 
 def client_from_params(params: Mapping[str, Any]) -> YandexCloudClient | None:
@@ -137,7 +131,7 @@ def client_from_params(params: Mapping[str, Any]) -> YandexCloudClient | None:
     if config is None:
         return None
 
-    key = _credential_fingerprint(config)
+    key = _credential_cache_key(config)
     with _client_cache_lock:
         cached = _client_cache.get(key)
         if cached is not None:

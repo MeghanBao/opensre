@@ -161,6 +161,17 @@ def load_env_integration_services() -> list[str]:
     add("x_mcp", _any_env("X_MCP_COMMAND", "X_MCP_URL", "X_MCP_AUTH_TOKEN"))
     add("mariadb", _all_env("MARIADB_HOST", "MARIADB_DATABASE"))
     add("opensearch", _env_is_set("OPENSEARCH_URL"))
+    add(
+        "yandex_cloud",
+        # A folder plus one credential, or the instance metadata service, which
+        # needs neither. Mirrors the classifier's rule so the banner, health and
+        # verification agree on whether it is configured.
+        (
+            _env_is_set("YC_FOLDER_ID")
+            and _any_env("YC_SA_KEY_FILE", "YC_SA_KEY", "YC_TOKEN", "YC_IAM_TOKEN")
+        )
+        or os.getenv("YC_USE_METADATA", "").strip().lower() in {"1", "true", "yes", "on"},
+    )
 
     services.extend(_catalog_impl.external_env_presence_services())
 

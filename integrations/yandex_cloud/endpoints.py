@@ -17,6 +17,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Final
 
 import httpx
@@ -152,9 +153,22 @@ STATIC_ENDPOINTS: Final[dict[str, str]] = {
     "ydb": "ydb.api.cloud.yandex.net",
 }
 
+
+@dataclass
+class _RegistryCache:
+    """The last live registry response and when it was fetched.
+
+    A single mutable holder rather than two module scalars reassigned through
+    ``global``: the fields are only ever mutated, never rebound, so nothing here
+    reads as an unused global.
+    """
+
+    endpoints: dict[str, str] | None = None
+    fetched_at: float = 0.0
+
+
 _cache_lock = threading.Lock()
-_cached_endpoints: dict[str, str] | None = None
-_cached_at: float = 0.0
+_cache = _RegistryCache()
 
 
 def _registry_url() -> str:
@@ -204,18 +218,16 @@ def known_endpoints(*, refresh: bool = True) -> dict[str, str]:
     in any service the live response omits, so resolution never regresses when a
     region serves a shorter list.
     """
-    global _cached_endpoints, _cached_at
-
     endpoints = dict(STATIC_ENDPOINTS)
     if refresh:
         with _cache_lock:
-            expired = time.monotonic() - _cached_at > _REGISTRY_CACHE_TTL_SECONDS
-            if _cached_endpoints is None or expired:
+            expired = time.monotonic() - _cache.fetched_at > _REGISTRY_CACHE_TTL_SECONDS
+            if _cache.endpoints is None or expired:
                 fetched = _fetch_endpoints()
                 if fetched:
-                    _cached_endpoints = fetched
-                    _cached_at = time.monotonic()
-            cached = _cached_endpoints
+                    _cache.endpoints = fetched
+                    _cache.fetched_at = time.monotonic()
+            cached = _cache.endpoints
         if cached:
             endpoints.update(cached)
     endpoints.update(_endpoint_overrides())
@@ -234,10 +246,9 @@ def resolve_endpoint(service: str, *, refresh: bool = True) -> str | None:
 
 def reset_endpoint_cache() -> None:
     """Drop the cached registry response."""
-    global _cached_endpoints, _cached_at
     with _cache_lock:
-        _cached_endpoints = None
-        _cached_at = 0.0
+        _cache.endpoints = None
+        _cache.fetched_at = 0.0
 
 
 __all__ = [

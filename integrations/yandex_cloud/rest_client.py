@@ -17,7 +17,6 @@ address.
 
 from __future__ import annotations
 
-import logging
 import re
 import threading
 import time
@@ -31,8 +30,6 @@ from integrations.yandex_cloud import metadata
 from integrations.yandex_cloud.auth import YandexCloudAuth, YandexCloudAuthError
 from integrations.yandex_cloud.config import YandexCloudIntegrationConfig
 from integrations.yandex_cloud.endpoints import known_endpoints, resolve_endpoint
-
-logger = logging.getLogger(__name__)
 
 #: Longest list a response may carry before the tail is dropped. Investigation
 #: payloads are re-serialized into the prompt, so an unbounded list is a context

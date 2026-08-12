@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from config.strict_config import StrictConfigModel
+from core.domain.types.tools import ToolSurface
 from core.tool_framework.registered_tool import RegisteredTool
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ MergeIntegrationsByServiceFn = Callable[
     list[dict[str, Any]],
 ]
 ConfiguredIntegrationServicesFn = Callable[[], tuple[str, ...]]
+SetupableIntegrationServicesFn = Callable[[], tuple[str, ...]]
 
 
 def _default_fetch_remote(org_id: str, auth_token: str) -> list[dict[str, Any]]:
@@ -85,6 +87,10 @@ def _default_configured_services() -> tuple[str, ...]:
     return ()
 
 
+def _default_setupable_services() -> tuple[str, ...]:
+    return ()
+
+
 def _default_fetch_webapp_vault() -> list[dict[str, Any]] | None:
     return None
 
@@ -97,6 +103,7 @@ _classify_integrations: ClassifyIntegrationsFn = _default_classify_integrations
 _merge_local_integrations: MergeLocalIntegrationsFn = _default_merge_local
 _merge_integrations_by_service: MergeIntegrationsByServiceFn = _default_merge_by_service
 _configured_integration_services: ConfiguredIntegrationServicesFn = _default_configured_services
+_setupable_integration_services: SetupableIntegrationServicesFn = _default_setupable_services
 _fetch_webapp_vault: WebappVaultFetcherFn = _default_fetch_webapp_vault
 
 
@@ -111,6 +118,17 @@ def fetch_remote_integrations(*, org_id: str, auth_token: str) -> list[dict[str,
 
 def configured_integration_services() -> tuple[str, ...]:
     return _configured_integration_services()
+
+
+def set_setupable_integration_services(fetcher: SetupableIntegrationServicesFn) -> None:
+    """Register the catalog of service ids valid for ``/integrations setup``."""
+    global _setupable_integration_services
+    _setupable_integration_services = fetcher
+
+
+def setupable_integration_services() -> tuple[str, ...]:
+    """Service ids that have a real setup handler (never invent outside this set)."""
+    return _setupable_integration_services()
 
 
 def set_integration_resolution_adapters(
@@ -349,10 +367,10 @@ InvestigationToolsFn = Callable[[dict[str, Any]], list[RegisteredTool]]
 class _EmptyToolRegistry:
     """Default tool registry that resolves nothing until one is injected."""
 
-    def tools_for_surface(self, _surface: str) -> list[RegisteredTool]:
+    def tools_for_surface(self, _surface: ToolSurface) -> list[RegisteredTool]:
         return []
 
-    def tool_map_for_surface(self, _surface: str) -> dict[str, RegisteredTool]:
+    def tool_map_for_surface(self, _surface: ToolSurface) -> dict[str, RegisteredTool]:
         return {}
 
 
@@ -364,11 +382,11 @@ _tool_registry: ToolRegistry = _EmptyToolRegistry()
 _get_investigation_tools: InvestigationToolsFn = _default_investigation_tools
 
 
-def get_surface_tools(surface: str) -> list[RegisteredTool]:
+def get_surface_tools(surface: ToolSurface) -> list[RegisteredTool]:
     return _tool_registry.tools_for_surface(surface)
 
 
-def get_surface_tool_map(surface: str) -> dict[str, RegisteredTool]:
+def get_surface_tool_map(surface: ToolSurface) -> dict[str, RegisteredTool]:
     return _tool_registry.tool_map_for_surface(surface)
 
 
@@ -744,6 +762,7 @@ def reset_harness_ports() -> None:
     clear_preferred_evidence_sources()
     set_subprocess_presenter_factory(None)
     set_integration_setup_command(_default_integration_setup_command)
+    set_setupable_integration_services(_default_setupable_services)
 
     # Core leaf registries (populated by integrations/harness_adapters).
     from core.domain.alerts.alert_source import (

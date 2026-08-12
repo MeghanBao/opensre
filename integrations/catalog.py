@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+<<<<<<< HEAD
 from config.constants.yandex_cloud import (
     YC_FOLDER_ID_ENV,
     YC_IAM_TOKEN_ENV,
@@ -12,6 +13,13 @@ from config.constants.yandex_cloud import (
     YC_SA_KEY_FILE_ENV,
     YC_TOKEN_ENV,
     YC_USE_METADATA_ENV,
+=======
+from config.constants.helm import OSRE_HELM_INTEGRATION_ENV
+from config.constants.new_relic import (
+    NEW_RELIC_ACCOUNT_ID_ENV,
+    NEW_RELIC_API_KEY_ENV,
+    NEW_RELIC_INSTANCES_ENV,
+>>>>>>> upstream/main
 )
 from integrations import _catalog_impl
 from integrations.store import load_integrations
@@ -96,6 +104,11 @@ def load_env_integration_services() -> list[str]:
     add("honeycomb", _any_env("HONEYCOMB_API_KEY", "HONEYCOMB_INSTANCES"))
     add("coralogix", _any_env("CORALOGIX_API_KEY", "CORALOGIX_INSTANCES"))
     add(
+        "new_relic",
+        _all_env(NEW_RELIC_API_KEY_ENV, NEW_RELIC_ACCOUNT_ID_ENV)
+        or _env_is_set(NEW_RELIC_INSTANCES_ENV),
+    )
+    add(
         "aws",
         _any_env("AWS_INSTANCES", "AWS_ROLE_ARN")
         or _all_env("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
@@ -119,7 +132,7 @@ def load_env_integration_services() -> list[str]:
             )
         ),
     )
-    add("helm", os.getenv("OSRE_HELM_INTEGRATION", "").strip().lower() in {"1", "true", "yes"})
+    add("helm", os.getenv(OSRE_HELM_INTEGRATION_ENV, "").strip().lower() in {"1", "true", "yes"})
     add(
         "railway",
         _env_is_set("RAILWAY_TOKEN")

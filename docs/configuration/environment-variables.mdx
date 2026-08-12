@@ -140,9 +140,9 @@ All configuration options for OpenSRE can be set via environment variables. This
 
 | Variable | Default | Description | Module |
 |----------|---------|-------------|--------|
-| `TRACER_VERBOSE` | `0` | Verbose output for tracer (`1`, `true`, `yes`) | `surfaces/interactive_shell/ui/output` |
-| `TRACER_OUTPUT_FORMAT` | | Output format for tracer results | `platform/observability/output_format` |
-| `TRACER_API_URL` | | API URL for tracer reports | `integrations/slack/delivery.py` |
+| `TRACER_VERBOSE` | `0` | Verbose OpenSRE CLI/UI output (`1`, `true`, `yes`) | `surfaces/interactive_shell/ui/output` |
+| `TRACER_OUTPUT_FORMAT` | | OpenSRE result output format | `platform/observability/output_format` |
+| `TRACER_API_URL` | | Base URL for the tracer observability integration / report delivery | `integrations/tracer` |
 | `NO_COLOR` | | Disable colored output (standard convention) | `platform/observability/output_format` |
 | `COLUMNS` | `80` | Terminal column width for output formatting | `surfaces/interactive_shell/ui/output` |
 | `ENV` | `development` | Environment (`development`, `production`) | `config` |
@@ -186,19 +186,19 @@ not a Mintlify docs-site page).
 
 | Variable | Default | Description | Module |
 |----------|---------|-------------|--------|
-| `OPENSRE_NO_TELEMETRY` | `0` | Disable all telemetry, including Sentry and PostHog (covers `$ai_generation` prompt/response events) | `platform/observability/sentry_sdk.py` |
-| `OPENSRE_SENTRY_DISABLED` | `0` | Disable Sentry error reporting | `platform/observability/sentry_sdk.py` |
-| `OPENSRE_SENTRY_DSN` | | Override Sentry DSN | `platform/observability/sentry_sdk.py` |
+| `OPENSRE_NO_TELEMETRY` | `0` | Disable all telemetry, including Sentry and PostHog (covers `$ai_generation` prompt/response events) | `platform/observability/errors/sentry.py` |
+| `OPENSRE_SENTRY_DISABLED` | `0` | Disable Sentry error reporting | `platform/observability/errors/sentry.py` |
+| `OPENSRE_SENTRY_DSN` | | Override Sentry DSN | `platform/observability/errors/sentry.py` |
 | `OPENSRE_SENTRY_LOGGING_DISABLED` | `0` | Disable Sentry log integration | `.env.example` |
 | `OPENSRE_DEPLOYMENT_METHOD` | `local` | Deployment method tag for Sentry (`railway`, `ec2`, `vercel`, `local`) | `.env.example` |
 | `OPENSRE_PROMPT_LOG_DISABLED` | `0` | Disable prompt logging entirely | `.env.example` |
 | `OPENSRE_PROMPT_LOG_LOCAL_DISABLED` | `0` | Disable local prompt log file | `.env.example` |
 | `OPENSRE_PROMPT_LOG_REDACT` | `1` | Redact known token shapes from prompts/responses before local or PostHog logging | `.env.example` |
-| `OPENSRE_PROMPT_LOG_PATH` | `~/.config/opensre/prompt_log.jsonl` | Path to local prompt log file | `.env.example` |
+| `OPENSRE_PROMPT_LOG_PATH` | `~/.opensre/prompt_log.jsonl` | Path to local prompt log file | `.env.example` |
 | `OPENSRE_OPERATIONS_LOG_DISABLED` | `0` | Disable the local operations log | `.env.example` |
 | `OPENSRE_OPERATIONS_LOG_PATH` | `~/.opensre/operations_log.jsonl` | Path to the local operations log | `.env.example` |
 | `OPENSRE_OPERATIONS_LOG_MAX_BYTES` | `5242880` | Rotate the local operations log after this many bytes | `.env.example` |
-| `DO_NOT_TRACK` | `0` | Honor global do-not-track preference | `platform/observability/sentry_sdk.py` |
+| `DO_NOT_TRACK` | `0` | Honor global do-not-track preference | `platform/observability/errors/sentry.py` |
 | `SENTRY_TRACES_SAMPLE_RATE` | `1.0` | Trace sampling rate for Sentry | `.env.example` |
 | `SENTRY_ERROR_SAMPLE_RATE` | `1.0` | Error sampling rate for Sentry | `.env.example` |
 
@@ -434,9 +434,10 @@ not a Mintlify docs-site page).
 | `AZURE_SQL_ENCRYPT` | `true` | Enable Azure SQL encryption | `integrations/_catalog_impl` |
 | `AZURE_LOG_ANALYTICS_WORKSPACE_ID` | | Azure Log Analytics workspace ID | `integrations/_catalog_impl` |
 | `AZURE_LOG_ANALYTICS_TOKEN` | | Azure Log Analytics token | `integrations/_catalog_impl` |
+| `AZURE_LOG_ANALYTICS_ENDPOINT` | `https://api.loganalytics.io` | Log Analytics Query API host (override for sovereign clouds) | `integrations/_catalog_impl` |
 | `AZURE_TENANT_ID` | | Azure tenant ID | `integrations/_catalog_impl` |
 | `AZURE_SUBSCRIPTION_ID` | | Azure subscription ID | `integrations/_catalog_impl` |
-| `AZURE_MAX_RESULTS` | `100` | Max Azure results | `integrations/_catalog_impl` |
+| `AZURE_MAX_RESULTS` | `100` | Max Azure results (capped at 200) | `integrations/_catalog_impl` |
 
 ### MCP Servers
 | Variable | Default | Description | Module |

@@ -360,7 +360,8 @@ MCP_BY_COMMAND: dict[str, _SlashMcpFields] = {
     ),
     "/remote-sync": _mcp(
         "Mirror this machine's sessions and memory to an object store the user "
-        "owns (built-in: aws/S3, vercel Blob). Subcommands: status, sync, setup. "
+        "owns (built-in: aws/S3, gcs, vercel Blob, azure Blob). Subcommands: "
+        "status, sync, setup. "
         "Off until setup or env enable; integration credentials and model keys "
         "are never uploaded.",
         "User asks to sync, back up, set up remote sync, or restore conversations",
@@ -374,7 +375,8 @@ MCP_BY_COMMAND: dict[str, _SlashMcpFields] = {
         "User asks to list running or recent tasks",
     ),
     "/template": _mcp(
-        "Print a starter alert JSON template (generic, datadog, grafana, honeycomb, coralogix, splunk).",
+        "Print a starter alert JSON template (generic, datadog, grafana, honeycomb, coralogix, "
+        "splunk, new_relic).",
         "User asks for an alert template or example payload format",
     ),
     "/tools": _mcp(

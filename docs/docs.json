@@ -159,6 +159,7 @@
             "pages": [
               "argocd",
               "aws",
+              "yandex-cloud",
               "aws_lambda",
               "s3",
               "kubernetes",

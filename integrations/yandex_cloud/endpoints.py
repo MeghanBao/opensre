@@ -164,7 +164,11 @@ class _RegistryCache:
     """
 
     endpoints: dict[str, str] | None = None
-    fetched_at: float = 0.0
+    #: When the registry was last *attempted*, or None if never. A sentinel
+    #: rather than 0.0 so "never fetched" cannot be mistaken for "fetched long
+    #: ago": ``time.monotonic()`` is small on a freshly booted host, so a
+    #: zero baseline would read as still-fresh and skip the first real fetch.
+    fetched_at: float | None = None
 
 
 _cache_lock = threading.Lock()
@@ -221,11 +225,14 @@ def known_endpoints(*, refresh: bool = True) -> dict[str, str]:
     endpoints = dict(STATIC_ENDPOINTS)
     if refresh:
         with _cache_lock:
-            # ``fetched_at`` starts at zero, so the first call is always expired
-            # and fetches; a failed fetch stamps it too, so the next attempt is
-            # a cache period away rather than on the very next call.
-            expired = time.monotonic() - _cache.fetched_at > _REGISTRY_CACHE_TTL_SECONDS
-            if expired:
+            # Never attempted yet, or the last attempt aged out. A failed fetch
+            # still stamps the time, so the next attempt is a cache period away
+            # rather than on the very next call.
+            due = (
+                _cache.fetched_at is None
+                or time.monotonic() - _cache.fetched_at > _REGISTRY_CACHE_TTL_SECONDS
+            )
+            if due:
                 fetched = _fetch_endpoints()
                 if fetched:
                     _cache.endpoints = fetched
@@ -252,10 +259,10 @@ def resolve_endpoint(service: str, *, refresh: bool = True) -> str | None:
 
 
 def reset_endpoint_cache() -> None:
-    """Drop the cached registry response."""
+    """Drop the cached registry response, back to the never-attempted state."""
     with _cache_lock:
         _cache.endpoints = None
-        _cache.fetched_at = 0.0
+        _cache.fetched_at = None
 
 
 __all__ = [

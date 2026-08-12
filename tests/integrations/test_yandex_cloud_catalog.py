@@ -327,6 +327,10 @@ class TestEndpointRegistryBackoff:
             raise RuntimeError("registry unreachable")
 
         monkeypatch.setattr(endpoints.httpx, "get", _fail)
+        # A freshly booted host reports a small time.monotonic(); the cache must
+        # still fetch the first time rather than mistake "never fetched" for
+        # "fetched recently" and skip it. (This is what failed in CI.)
+        monkeypatch.setattr(endpoints.time, "monotonic", lambda: 50.0)
 
         for _ in range(3):
             resolved = endpoints.known_endpoints()

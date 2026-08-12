@@ -7,6 +7,12 @@ second set of exports.
 
 from __future__ import annotations
 
+AUTH_MODE_SA_KEY_FILE = "sa_key_file"
+AUTH_MODE_SA_KEY = "sa_key"
+AUTH_MODE_OAUTH = "oauth"
+AUTH_MODE_IAM_TOKEN = "iam_token"
+AUTH_MODE_METADATA = "metadata"
+
 YC_FOLDER_ID_ENV = "YC_FOLDER_ID"
 YC_CLOUD_ID_ENV = "YC_CLOUD_ID"
 
@@ -27,6 +33,11 @@ YC_API_ENDPOINT_ENV = "YC_API_ENDPOINT"
 YC_ENDPOINT_OVERRIDES_ENV = "YC_ENDPOINT_OVERRIDES"
 
 __all__ = [
+    "AUTH_MODE_IAM_TOKEN",
+    "AUTH_MODE_METADATA",
+    "AUTH_MODE_OAUTH",
+    "AUTH_MODE_SA_KEY",
+    "AUTH_MODE_SA_KEY_FILE",
     "YC_API_ENDPOINT_ENV",
     "YC_CLOUD_ID_ENV",
     "YC_ENDPOINT_OVERRIDES_ENV",

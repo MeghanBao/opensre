@@ -26,15 +26,15 @@ from typing import Any, Final, NamedTuple
 
 import httpx
 
-from integrations.yandex_cloud import metadata
-from integrations.yandex_cloud.config import (
+from config.constants.yandex_cloud import (
     AUTH_MODE_IAM_TOKEN,
     AUTH_MODE_METADATA,
     AUTH_MODE_OAUTH,
     AUTH_MODE_SA_KEY,
     AUTH_MODE_SA_KEY_FILE,
-    YandexCloudIntegrationConfig,
 )
+from integrations.yandex_cloud import metadata
+from integrations.yandex_cloud.config import YandexCloudIntegrationConfig
 from integrations.yandex_cloud.endpoints import resolve_endpoint
 
 _IAM_SERVICE: Final = "iam"

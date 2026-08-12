@@ -9,15 +9,15 @@ from __future__ import annotations
 
 from pydantic import field_validator, model_validator
 
+from config.constants.yandex_cloud import (
+    AUTH_MODE_IAM_TOKEN,
+    AUTH_MODE_METADATA,
+    AUTH_MODE_OAUTH,
+    AUTH_MODE_SA_KEY,
+    AUTH_MODE_SA_KEY_FILE,
+)
 from config.strict_config import StrictConfigModel
 from integrations._validators import normalize_str
-
-#: How credentials were supplied, in the order they are preferred.
-AUTH_MODE_SA_KEY_FILE = "sa_key_file"
-AUTH_MODE_SA_KEY = "sa_key"
-AUTH_MODE_OAUTH = "oauth"
-AUTH_MODE_IAM_TOKEN = "iam_token"
-AUTH_MODE_METADATA = "metadata"
 
 
 class YandexCloudIntegrationConfig(StrictConfigModel):
@@ -114,11 +114,4 @@ class YandexCloudIntegrationConfig(StrictConfigModel):
         return self
 
 
-__all__ = [
-    "AUTH_MODE_IAM_TOKEN",
-    "AUTH_MODE_METADATA",
-    "AUTH_MODE_OAUTH",
-    "AUTH_MODE_SA_KEY",
-    "AUTH_MODE_SA_KEY_FILE",
-    "YandexCloudIntegrationConfig",
-]
+__all__ = ["YandexCloudIntegrationConfig"]

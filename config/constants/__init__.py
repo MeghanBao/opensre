@@ -366,6 +366,11 @@ from config.constants.vercel import VERCEL_API_TOKEN_ENV, VERCEL_TEAM_ID_ENV
 from config.constants.work_items import OPENSRE_WORK_ITEMS_DIR_ENV
 from config.constants.x_mcp import X_MCP_AUTH_TOKEN_ENV, X_MCP_URL_ENV
 from config.constants.yandex_cloud import (
+    AUTH_MODE_IAM_TOKEN,
+    AUTH_MODE_METADATA,
+    AUTH_MODE_OAUTH,
+    AUTH_MODE_SA_KEY,
+    AUTH_MODE_SA_KEY_FILE,
     YC_API_ENDPOINT_ENV,
     YC_CLOUD_ID_ENV,
     YC_ENDPOINT_OVERRIDES_ENV,
@@ -657,6 +662,11 @@ __all__ = [
     "integrations_store_path",
     "opensre_home",
     "session_home",
+    "AUTH_MODE_IAM_TOKEN",
+    "AUTH_MODE_METADATA",
+    "AUTH_MODE_OAUTH",
+    "AUTH_MODE_SA_KEY",
+    "AUTH_MODE_SA_KEY_FILE",
     "YC_API_ENDPOINT_ENV",
     "YC_CLOUD_ID_ENV",
     "YC_ENDPOINT_OVERRIDES_ENV",

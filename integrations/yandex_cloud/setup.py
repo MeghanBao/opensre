@@ -14,6 +14,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from config.constants.yandex_cloud import (
+    AUTH_MODE_IAM_TOKEN,
+    AUTH_MODE_METADATA,
+    AUTH_MODE_OAUTH,
+    AUTH_MODE_SA_KEY,
+    AUTH_MODE_SA_KEY_FILE,
     YC_CLOUD_ID_ENV,
     YC_FOLDER_ID_ENV,
     YC_IAM_TOKEN_ENV,
@@ -122,27 +127,27 @@ YANDEX_CLOUD_SETUP = IntegrationSetupSpec(
     mode_prompt="How should OpenSRE authenticate to Yandex Cloud?",
     modes=(
         SetupMode(
-            value="sa_key_file",
+            value=AUTH_MODE_SA_KEY_FILE,
             label="Service-account key file (recommended)",
             fields=(SA_KEY_FILE_FIELD,),
         ),
         SetupMode(
-            value="sa_key",
+            value=AUTH_MODE_SA_KEY,
             label="Service-account key, pasted inline",
             fields=(SA_KEY_FIELD,),
         ),
         SetupMode(
-            value="oauth",
+            value=AUTH_MODE_OAUTH,
             label="OAuth token (personal account)",
             fields=(OAUTH_TOKEN_FIELD,),
         ),
         SetupMode(
-            value="iam_token",
+            value=AUTH_MODE_IAM_TOKEN,
             label="IAM token (short-lived, for testing)",
             fields=(IAM_TOKEN_FIELD,),
         ),
         SetupMode(
-            value="metadata",
+            value=AUTH_MODE_METADATA,
             label="Instance metadata (running on a Yandex Cloud VM)",
             fields=(USE_METADATA_FIELD,),
         ),

@@ -5,7 +5,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
-<<<<<<< HEAD
+from config.constants.helm import OSRE_HELM_INTEGRATION_ENV
+from config.constants.new_relic import (
+    NEW_RELIC_ACCOUNT_ID_ENV,
+    NEW_RELIC_API_KEY_ENV,
+    NEW_RELIC_INSTANCES_ENV,
+)
 from config.constants.yandex_cloud import (
     YC_FOLDER_ID_ENV,
     YC_IAM_TOKEN_ENV,
@@ -13,13 +18,6 @@ from config.constants.yandex_cloud import (
     YC_SA_KEY_FILE_ENV,
     YC_TOKEN_ENV,
     YC_USE_METADATA_ENV,
-=======
-from config.constants.helm import OSRE_HELM_INTEGRATION_ENV
-from config.constants.new_relic import (
-    NEW_RELIC_ACCOUNT_ID_ENV,
-    NEW_RELIC_API_KEY_ENV,
-    NEW_RELIC_INSTANCES_ENV,
->>>>>>> upstream/main
 )
 from integrations import _catalog_impl
 from integrations.store import load_integrations

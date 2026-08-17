@@ -85,6 +85,9 @@ class CiFixContext:
     skipped_check_names: tuple[str, ...]
     failing_checks: tuple[FailingCheck, ...]
     task: str
+    expected_workflow_names: tuple[str, ...] = ()
+    expected_external_check_names: tuple[str, ...] = ()
+    actions_run_expected: bool = False
 
 
 def parse_pr_url(pr_url: str | None) -> PullRequestRef | None:
@@ -155,6 +158,30 @@ def gather_ci_fix_context(
         )
 
     rollup = _list_value(pr.get("statusCheckRollup"))
+    expected_workflow_names = tuple(
+        sorted(
+            {
+                workflow_name
+                for item in rollup
+                if (workflow_name := str(item.get("workflowName") or "").strip())
+            }
+        )
+    )
+    expected_external_check_names = tuple(
+        sorted(
+            {
+                _check_name(item)
+                for item in rollup
+                if not str(item.get("workflowName") or "").strip()
+                and not _actions_ids(str(item.get("detailsUrl") or item.get("targetUrl") or ""))[0]
+            }
+        )
+    )
+    actions_run_expected = any(
+        str(item.get("workflowName") or "").strip()
+        or _actions_ids(str(item.get("detailsUrl") or item.get("targetUrl") or ""))[0]
+        for item in rollup
+    )
     checks = tuple(
         _failing_check_from_rollup(repo_full_name, item, github_token=github_token)
         for item in rollup
@@ -181,6 +208,9 @@ def gather_ci_fix_context(
         skipped_check_names=tuple(_check_name(item) for item in rollup if _is_skipped(item)),
         failing_checks=checks,
         task="",
+        expected_workflow_names=expected_workflow_names,
+        expected_external_check_names=expected_external_check_names,
+        actions_run_expected=actions_run_expected,
     )
     return replace(ctx, task=_build_task(ctx))
 

@@ -178,7 +178,7 @@ def with_push_output(
             **result,
             "response_text": (
                 f"Fixed failing CI for {owner}/{repo}#{number}, pushed {push.branch_name}, "
-                "and all PR checks passed."
+                "and the pushed commit's observed checks passed."
             ),
         }
     if verification.state is CheckState.FAILED:

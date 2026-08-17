@@ -34,6 +34,8 @@ _CONTEXT = CiFixContext(
         ),
     ),
     task="Fix CI.",
+    expected_workflow_names=("CI",),
+    actions_run_expected=True,
 )
 
 
@@ -41,7 +43,7 @@ _CONTEXT = CiFixContext(
 def _completed_workflow_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "integrations.github.tools.ci_fix.verification._workflow_runs_state",
-        lambda **_kwargs: (True, ("1:completed",)),
+        lambda **_kwargs: (True, ("1:completed",), ("CI",)),
     )
 
 
@@ -71,14 +73,14 @@ def test_workflow_runs_state_uses_exact_commit() -> None:
         {"runs": []},
         {
             "runs": [
-                {"databaseId": 1, "status": "completed"},
-                {"databaseId": 2, "status": "in_progress"},
+                {"databaseId": 1, "status": "completed", "workflowName": "CI"},
+                {"databaseId": 2, "status": "in_progress", "workflowName": "Security"},
             ]
         },
         {
             "runs": [
-                {"databaseId": 1, "status": "completed"},
-                {"databaseId": 2, "status": "completed"},
+                {"databaseId": 1, "status": "completed", "workflowName": "CI"},
+                {"databaseId": 2, "status": "completed", "workflowName": "Security"},
             ]
         },
     ]
@@ -92,19 +94,19 @@ def test_workflow_runs_state_uses_exact_commit() -> None:
             github_token="tok",
             expected_head_sha="new-sha",
             require_run=True,
-        ) == (False, ())
+        ) == (False, (), ())
         assert _workflow_runs_state(
             repo="Tracer-Cloud/opensre",
             github_token="tok",
             expected_head_sha="new-sha",
             require_run=True,
-        ) == (False, ("1:completed", "2:in_progress"))
+        ) == (False, ("1:completed", "2:in_progress"), ("CI", "Security"))
         assert _workflow_runs_state(
             repo="Tracer-Cloud/opensre",
             github_token="tok",
             expected_head_sha="new-sha",
             require_run=True,
-        ) == (True, ("1:completed", "2:completed"))
+        ) == (True, ("1:completed", "2:completed"), ("CI", "Security"))
 
     assert run_gh.call_args_list[0].args[0][:4] == ["run", "list", "--commit", "new-sha"]
 
@@ -374,10 +376,10 @@ def test_wait_for_pr_checks_waits_for_late_check_in_running_workflow(
     elapsed = iter((0.0, 0.0, 31.0, 32.0, 62.0))
     workflow_states = iter(
         (
-            (False, ("1:in_progress",)),
-            (False, ("1:in_progress",)),
-            (True, ("1:completed",)),
-            (True, ("1:completed",)),
+            (False, ("1:in_progress",), ("CI",)),
+            (False, ("1:in_progress",), ("CI",)),
+            (True, ("1:completed",), ("CI",)),
+            (True, ("1:completed",), ("CI",)),
         )
     )
     monkeypatch.setattr(
@@ -403,9 +405,10 @@ def test_wait_for_pr_checks_waits_for_late_check_in_running_workflow(
     assert result.failing_checks == ("tests",)
 
 
-def test_wait_for_pr_checks_resets_settle_for_late_second_workflow(
+def test_wait_for_pr_checks_waits_for_expected_workflow_after_settle_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    context = replace(_CONTEXT, expected_workflow_names=("CI", "Security"))
     late_failure = {
         "headRefOid": "new-sha",
         "statusCheckRollup": [
@@ -431,12 +434,12 @@ def test_wait_for_pr_checks_resets_settle_for_late_second_workflow(
     ]
     workflow_states = iter(
         (
-            (True, ("1:completed",)),
-            (True, ("1:completed",)),
-            (True, ("1:completed", "2:completed")),
-            (True, ("1:completed", "2:completed")),
-            (True, ("1:completed", "2:completed")),
-            (True, ("1:completed", "2:completed")),
+            (True, ("1:completed",), ("CI",)),
+            (True, ("1:completed",), ("CI",)),
+            (True, ("1:completed",), ("CI",)),
+            (False, ("1:completed", "2:in_progress"), ("CI", "Security")),
+            (True, ("1:completed", "2:completed"), ("CI", "Security")),
+            (True, ("1:completed", "2:completed"), ("CI", "Security")),
         )
     )
     elapsed = iter((0.0, 60.0, 89.0, 91.0, 120.0, 122.0, 152.0))
@@ -450,7 +453,7 @@ def test_wait_for_pr_checks_resets_settle_for_late_second_workflow(
         side_effect=responses,
     ):
         result = wait_for_pr_checks(
-            _CONTEXT,
+            context,
             github_token="tok",
             expected_head_sha="new-sha",
             registration_seconds=60,
@@ -463,7 +466,11 @@ def test_wait_for_pr_checks_resets_settle_for_late_second_workflow(
     assert result.failing_checks == ("security",)
 
 
-def test_wait_for_pr_checks_registration_grace_catches_late_external_check() -> None:
+def test_wait_for_pr_checks_waits_for_late_expected_external_check() -> None:
+    context = replace(
+        _CONTEXT,
+        expected_external_check_names=("external security scan",),
+    )
     late_pending = {
         "headRefOid": "new-sha",
         "statusCheckRollup": [
@@ -496,19 +503,20 @@ def test_wait_for_pr_checks_registration_grace_catches_late_external_check() -> 
     }
     responses = [
         _rollup(sha="new-sha", name="quality", conclusion="SUCCESS", status="COMPLETED"),
+        _rollup(sha="new-sha", name="quality", conclusion="SUCCESS", status="COMPLETED"),
+        _rollup(sha="new-sha", name="quality", conclusion="SUCCESS", status="COMPLETED"),
         late_pending,
         late_failure,
         late_failure,
-        late_failure,
     ]
-    elapsed = iter((0.0, 0.0, 31.0, 40.0, 70.0, 100.0))
+    elapsed = iter((0.0, 0.0, 61.0, 91.0, 100.0, 110.0, 140.0))
 
     with patch(
         "integrations.github.tools.ci_fix.verification.run_gh_json",
         side_effect=responses,
     ):
         result = wait_for_pr_checks(
-            _CONTEXT,
+            context,
             github_token="tok",
             expected_head_sha="new-sha",
             registration_seconds=60,

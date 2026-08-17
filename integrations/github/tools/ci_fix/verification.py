@@ -18,7 +18,7 @@ DEFAULT_SETTLE_SECONDS = 30
 DEFAULT_HEAD_PROPAGATION_SECONDS = 30
 
 _PR_CHECK_FIELDS = "headRefOid,statusCheckRollup"
-_WORKFLOW_RUN_FIELDS = "databaseId,status"
+_WORKFLOW_RUN_FIELDS = "databaseId,status,workflowName"
 _WORKFLOW_RUNS_KEY = "runs"
 _WORKFLOW_RUN_COMPLETED = "completed"
 _FAILED_CONCLUSIONS = frozenset(
@@ -74,10 +74,17 @@ def wait_for_pr_checks(
     started_at = monotonic()
     deadline = started_at + max(0, timeout_seconds)
     expected_skips = set(ctx.skipped_check_names)
-    actions_run_required = any(check.run_id or check.workflow_name for check in ctx.failing_checks)
-    required_external_checks = {
+    actions_run_required = ctx.actions_run_expected or any(
+        check.run_id or check.workflow_name for check in ctx.failing_checks
+    )
+    required_workflows = set(ctx.expected_workflow_names)
+    required_workflows.update(
+        check.workflow_name for check in ctx.failing_checks if check.workflow_name
+    )
+    required_external_checks = set(ctx.expected_external_check_names)
+    required_external_checks.update(
         check.name for check in ctx.failing_checks if not check.run_id and not check.workflow_name
-    }
+    )
     last_names: tuple[str, ...] = ()
     terminal_signature: tuple[str, ...] = ()
     terminal_since: float | None = None
@@ -108,18 +115,19 @@ def wait_for_pr_checks(
                 observed_head_sha=head_sha,
             )
 
-        # Give the exact commit's checks time to register, then settle only
-        # completed workflows. Workflow identities join the signature below so
-        # another run appearing during settlement resets the clock.
+        # Require baseline workflow and external-check identities before
+        # settling. Individual jobs stay optional because workflow conditions
+        # can legitimately change which siblings run on the fix commit.
         if head_sha == expected_head_sha:
-            workflows_complete, workflow_signature = _workflow_runs_state(
+            workflows_complete, workflow_signature, workflow_names = _workflow_runs_state(
                 repo=repo,
                 github_token=github_token,
                 expected_head_sha=expected_head_sha,
                 require_run=actions_run_required,
             )
         else:
-            workflows_complete, workflow_signature = False, ()
+            workflows_complete, workflow_signature, workflow_names = False, (), ()
+        workflows_registered = required_workflows.issubset(set(workflow_names))
         external_checks_registered = required_external_checks.issubset(set(last_names))
         registration_complete = (
             expected_head_seen_at is not None
@@ -129,6 +137,7 @@ def wait_for_pr_checks(
             head_sha == expected_head_sha
             and checks
             and workflows_complete
+            and workflows_registered
             and external_checks_registered
             and registration_complete
         ):
@@ -175,7 +184,7 @@ def _workflow_runs_state(
     github_token: str | None,
     expected_head_sha: str,
     require_run: bool,
-) -> tuple[bool, tuple[str, ...]]:
+) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     payload = run_gh_json(
         [
             "run",
@@ -202,7 +211,16 @@ def _workflow_runs_state(
             for run in runs
         )
     )
-    return complete, signature
+    workflow_names = tuple(
+        sorted(
+            {
+                str(run.get("workflowName") or "").strip()
+                for run in runs
+                if str(run.get("workflowName") or "").strip()
+            }
+        )
+    )
+    return complete, signature, workflow_names
 
 
 def _verification_signature(

@@ -60,6 +60,12 @@ _PR_PAYLOAD: dict[str, Any] = {
             "detailsUrl": "https://github.com/Tracer-Cloud/opensre/actions/runs/1/job/3",
             "workflowName": "CI",
         },
+        {
+            "__typename": "StatusContext",
+            "context": "external security scan",
+            "state": "SUCCESS",
+            "targetUrl": "https://ci.example.test/runs/1",
+        },
     ],
 }
 
@@ -85,6 +91,8 @@ _CTX = CiFixContext(
         ),
     ),
     task="Fix CI.",
+    expected_workflow_names=("CI",),
+    actions_run_expected=True,
 )
 
 
@@ -135,6 +143,9 @@ def test_gather_ci_fix_context_builds_task_with_failing_logs() -> None:
     assert ctx.number == 4597
     assert ctx.head_branch == "feat/fix-ci"
     assert ctx.skipped_check_names == ()
+    assert ctx.expected_workflow_names == ("CI",)
+    assert ctx.expected_external_check_names == ("external security scan",)
+    assert ctx.actions_run_expected is True
     assert ctx.failing_checks[0].name == "test (integrations-and-misc)"
     assert "pytest failed" in ctx.task
     assert "Head branch to edit and push: feat/fix-ci" in ctx.task
@@ -363,7 +374,7 @@ def test_run_ci_fix_success_pushes_existing_pr_branch(
     assert result["checks_state"] == "passed"
     assert result["response_text"] == (
         "Fixed failing CI for Tracer-Cloud/opensre#4597, pushed feat/fix-ci, "
-        "and all PR checks passed."
+        "and the pushed commit's observed checks passed."
     )
     assert "checking out feat/fix-ci" in prompts[0]
     mock_push.assert_called_once()

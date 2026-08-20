@@ -287,7 +287,11 @@ def test_resolve_gather_integrations_enriches_github_from_repo_url() -> None:
     gh = resolved["github"]
     assert gh["owner"] == "Tracer-Cloud"
     assert gh["repo"] == "opensre"
-    assert session.vcs_repo_scopes["github"] == ("Tracer-Cloud", "opensre")
+    assert session.vcs_repo_scopes["github"] == (
+        "Tracer-Cloud",
+        "opensre",
+        "public_workspace",
+    )
 
 
 def test_resolve_gather_integrations_adds_public_workspace_github(

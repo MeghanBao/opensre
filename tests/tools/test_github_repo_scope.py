@@ -184,7 +184,7 @@ def test_prompt_repository_does_not_enable_public_fallback() -> None:
 
 def test_prompt_workspace_repository_keeps_public_fallback() -> None:
     scope = GITHUB_VCS_REPO_SCOPE_PROVIDER.infer(
-        message="Check stars for https://github.com/Tracer-Cloud/opensre",
+        message="Check stars for https://github.com/tracer-cloud/OpenSRE",
         conversation_messages=[],
         env={"OPENSRE_WORKSPACE_REPO": "Tracer-Cloud/opensre"},
         cwd="/not/a/repository",
@@ -196,10 +196,23 @@ def test_prompt_workspace_repository_keeps_public_fallback() -> None:
         "github": {
             "connection_verified": False,
             "public_repository": True,
-            "owner": "Tracer-Cloud",
-            "repo": "opensre",
+            "owner": "tracer-cloud",
+            "repo": "OpenSRE",
         }
     }
+
+
+def test_cached_public_scope_is_revalidated_after_workspace_change() -> None:
+    scope = GITHUB_VCS_REPO_SCOPE_PROVIDER.infer(
+        message="Check the velocity again",
+        conversation_messages=[],
+        env={"OPENSRE_WORKSPACE_REPO": "other-org/other-repo"},
+        cwd="/not/a/repository",
+        cached=("Tracer-Cloud", "opensre", "public_workspace"),
+    )
+    assert scope == ("Tracer-Cloud", "opensre")
+
+    assert GITHUB_VCS_REPO_SCOPE_PROVIDER.apply({}, scope) == {}
 
 
 def test_workspace_scope_keeps_configured_github_authenticated() -> None:

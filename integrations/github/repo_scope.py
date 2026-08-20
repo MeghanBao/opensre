@@ -135,19 +135,14 @@ def _infer_workspace_repo_scope(
 def _mark_public_workspace_scope(
     scope: tuple[str, str],
     *,
-    cached: tuple[str, ...] | None,
     env: Mapping[str, str] | None,
     cwd: str | Path | None,
 ) -> tuple[str, ...]:
-    """Preserve public access when a resolved scope is the current workspace."""
-    if (
-        cached is not None
-        and len(cached) >= 3
-        and cached[:2] == scope
-        and cached[2] == _PUBLIC_WORKSPACE_SCOPE_MARKER
+    """Allow public access only while a resolved scope is the current workspace."""
+    workspace_scope = _infer_workspace_repo_scope(env=env, cwd=cwd)
+    if workspace_scope is not None and tuple(part.casefold() for part in workspace_scope) == tuple(
+        part.casefold() for part in scope
     ):
-        return cached
-    if _infer_workspace_repo_scope(env=env, cwd=cwd) == scope:
         return (*scope, _PUBLIC_WORKSPACE_SCOPE_MARKER)
     return scope
 
@@ -194,7 +189,6 @@ class _GithubVcsRepoScopeProvider:
         if from_message:
             return _mark_public_workspace_scope(
                 from_message,
-                cached=cached,
                 env=env,
                 cwd=cwd,
             )
@@ -202,21 +196,17 @@ class _GithubVcsRepoScopeProvider:
         # it ahead of generated conversation prose, which may contain
         # slash-shaped rates such as ``0.43/day`` that resemble a bare repo.
         if cached:
-            if len(cached) == 2:
-                return _mark_public_workspace_scope(
-                    (cached[0], cached[1]),
-                    cached=cached,
-                    env=env,
-                    cwd=cwd,
-                )
-            return cached
+            return _mark_public_workspace_scope(
+                (cached[0], cached[1]),
+                env=env,
+                cwd=cwd,
+            )
         if conversation_messages:
             for _role, content in reversed(conversation_messages):
                 from_history = parse_github_repository_reference(content)
                 if from_history:
                     return _mark_public_workspace_scope(
                         from_history,
-                        cached=cached,
                         env=env,
                         cwd=cwd,
                     )

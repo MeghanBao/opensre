@@ -23,6 +23,7 @@ from collections.abc import Callable
 from bootstrap.process import EMBEDDED_PROFILE, configure_process
 from core.agent_harness import AgentSession, OutputSink, SessionConfig, SessionCore
 from core.agent_harness.ports import PromptContextProvider
+from core.agent_harness.runtime import GatherPhase
 
 
 def embedded_boot_step() -> None:
@@ -36,18 +37,26 @@ def start_embedded_session(
     output: OutputSink | None = None,
     prompts: PromptContextProvider | None = None,
     prepare_session: Callable[[SessionCore], None] | None = None,
+    gather: GatherPhase | None = None,
 ) -> AgentSession:
-    """Return a started :class:`AgentSession` with local adapters installed.
+    """Return a started session with local adapters and live gathering enabled.
 
     ``config.boot_process`` is filled in when the caller left it unset; a
-    caller that supplies its own boot step keeps it.
+    caller that supplies its own boot step keeps it. Pass a disabled
+    :class:`GatherPhase` to opt out of live integration reads.
     """
     from dataclasses import replace
 
     cfg = config or SessionConfig()
     if cfg.boot_process is None:
         cfg = replace(cfg, boot_process=embedded_boot_step)
-    return AgentSession.start(cfg, output=output, prompts=prompts, prepare_session=prepare_session)
+    return AgentSession.start(
+        cfg,
+        output=output,
+        prompts=prompts,
+        prepare_session=prepare_session,
+        gather=gather if gather is not None else GatherPhase(),
+    )
 
 
 __all__ = ["embedded_boot_step", "start_embedded_session"]

@@ -182,6 +182,26 @@ def test_prompt_repository_does_not_enable_public_fallback() -> None:
     assert GITHUB_VCS_REPO_SCOPE_PROVIDER.apply({}, scope) == {}
 
 
+def test_prompt_workspace_repository_keeps_public_fallback() -> None:
+    scope = GITHUB_VCS_REPO_SCOPE_PROVIDER.infer(
+        message="Check stars for https://github.com/Tracer-Cloud/opensre",
+        conversation_messages=[],
+        env={"OPENSRE_WORKSPACE_REPO": "Tracer-Cloud/opensre"},
+        cwd="/not/a/repository",
+        cached=None,
+    )
+    assert scope is not None
+
+    assert GITHUB_VCS_REPO_SCOPE_PROVIDER.apply({}, scope) == {
+        "github": {
+            "connection_verified": False,
+            "public_repository": True,
+            "owner": "Tracer-Cloud",
+            "repo": "opensre",
+        }
+    }
+
+
 def test_workspace_scope_keeps_configured_github_authenticated() -> None:
     scope = GITHUB_VCS_REPO_SCOPE_PROVIDER.infer(
         message="What is our current GitHub star developer velocity?",

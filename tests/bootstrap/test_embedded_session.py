@@ -6,6 +6,7 @@ from typing import Any
 
 from bootstrap.embedded import embedded_boot_step, start_embedded_session
 from core.agent_harness.harness import SessionConfig
+from core.agent_harness.runtime import GatherPhase
 
 
 def test_start_embedded_session_supplies_the_boot_step(monkeypatch: Any) -> None:
@@ -51,6 +52,37 @@ def test_a_caller_supplied_boot_step_is_kept(monkeypatch: Any) -> None:
 
     # Assert.
     assert captured["config"].boot_process is _mine
+
+
+def test_embedded_session_enables_live_gathering_by_default(monkeypatch: Any) -> None:
+    """The Python chat API must be able to read its installed integration tools."""
+    captured: dict[str, Any] = {}
+
+    def _fake_start(_config: SessionConfig | None = None, **kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("bootstrap.embedded.AgentSession.start", staticmethod(_fake_start))
+
+    start_embedded_session()
+
+    assert captured["gather"] == GatherPhase()
+
+
+def test_embedded_session_keeps_caller_gather_policy(monkeypatch: Any) -> None:
+    """Embedded hosts can still disable live integration reads explicitly."""
+    captured: dict[str, Any] = {}
+    disabled = GatherPhase(enabled=False)
+
+    def _fake_start(_config: SessionConfig | None = None, **kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("bootstrap.embedded.AgentSession.start", staticmethod(_fake_start))
+
+    start_embedded_session(gather=disabled)
+
+    assert captured["gather"] is disabled
 
 
 def test_embedded_session_boots_adapters_so_integrations_resolve() -> None:

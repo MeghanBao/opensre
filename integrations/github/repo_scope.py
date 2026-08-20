@@ -132,6 +132,26 @@ def _infer_workspace_repo_scope(
     return detect_git_remote_repo_scope(cwd)
 
 
+def _mark_public_workspace_scope(
+    scope: tuple[str, str],
+    *,
+    cached: tuple[str, ...] | None,
+    env: Mapping[str, str] | None,
+    cwd: str | Path | None,
+) -> tuple[str, ...]:
+    """Preserve public access when a resolved scope is the current workspace."""
+    if (
+        cached is not None
+        and len(cached) >= 3
+        and cached[:2] == scope
+        and cached[2] == _PUBLIC_WORKSPACE_SCOPE_MARKER
+    ):
+        return cached
+    if _infer_workspace_repo_scope(env=env, cwd=cwd) == scope:
+        return (*scope, _PUBLIC_WORKSPACE_SCOPE_MARKER)
+    return scope
+
+
 def apply_github_repo_scope(
     resolved: dict[str, Any],
     owner: str,
@@ -172,14 +192,34 @@ class _GithubVcsRepoScopeProvider:
     ) -> tuple[str, ...] | None:
         from_message = parse_github_repository_reference(message)
         if from_message:
-            return from_message
+            return _mark_public_workspace_scope(
+                from_message,
+                cached=cached,
+                env=env,
+                cwd=cwd,
+            )
+        # This is the scope selected from the prior turn's user message. Keep
+        # it ahead of generated conversation prose, which may contain
+        # slash-shaped rates such as ``0.43/day`` that resemble a bare repo.
+        if cached:
+            if len(cached) == 2:
+                return _mark_public_workspace_scope(
+                    (cached[0], cached[1]),
+                    cached=cached,
+                    env=env,
+                    cwd=cwd,
+                )
+            return cached
         if conversation_messages:
             for _role, content in reversed(conversation_messages):
                 from_history = parse_github_repository_reference(content)
                 if from_history:
-                    return from_history
-        if cached:
-            return cached
+                    return _mark_public_workspace_scope(
+                        from_history,
+                        cached=cached,
+                        env=env,
+                        cwd=cwd,
+                    )
         workspace_scope = _infer_workspace_repo_scope(env=env, cwd=cwd)
         if workspace_scope is None:
             return None

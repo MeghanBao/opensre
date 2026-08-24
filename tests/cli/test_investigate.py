@@ -92,6 +92,27 @@ def test_run_investigation_cli_accepts_raw_incident_text(monkeypatch) -> None:
     assert captured["raw_alert"] == "checkout-api is returning 502s"
 
 
+def test_run_investigation_cli_marks_explicit_user_request(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_call(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "report": "r",
+            "problem_md": "p",
+            "root_cause": "c",
+            "is_noise": False,
+            "validity_score": 0.0,
+        }
+
+    monkeypatch.setattr("surfaces.cli.investigation.investigate.check_llm_settings", lambda: None)
+    monkeypatch.setattr("tools.investigation.capability.run_investigation_payload", fake_call)
+
+    run_investigation_cli(raw_alert="checkout-api is returning 502s", user_requested=True)
+
+    assert captured["user_requested"] is True
+
+
 def test_run_investigation_cli_shapes_agent_state(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -121,6 +142,7 @@ def test_run_investigation_cli_shapes_agent_state(monkeypatch) -> None:
         "raw_alert": {"alert_name": "PayloadAlert"},
         "opensre_evaluate": False,
         "investigation_metadata": None,
+        "user_requested": False,
     }
     assert result == {
         "report": "report body",

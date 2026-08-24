@@ -324,12 +324,14 @@ class AgentSession:
         *,
         opensre_evaluate: bool = False,
         investigation_metadata: tuple[str, str] | None = None,
+        user_requested: bool = False,
     ) -> InvestigationResult:
         """Run an investigation and return a typed result.
 
         Uses the payload runner installed at process boot
         (:func:`core.agent_harness.investigation_api.install_investigation_payload_runner`).
-        Does not require an attached chat agent.
+        Does not require an attached chat agent. Set ``user_requested`` when an
+        explicit user action must bypass automated alert noise filtering.
         """
         from core.agent_harness.investigation_api import run_installed_investigation_payload
 
@@ -337,6 +339,7 @@ class AgentSession:
             raw_alert=alert,
             opensre_evaluate=opensre_evaluate,
             investigation_metadata=investigation_metadata,
+            user_requested=user_requested,
         )
 
     def resolve_integrations(self, session: SessionCore) -> dict[str, Any]:

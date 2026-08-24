@@ -37,6 +37,7 @@ def run_investigation_cli(
     raw_alert: str | dict[str, Any],
     opensre_evaluate: bool = False,
     investigation_metadata: tuple[str, str] | None = None,
+    user_requested: bool = False,
 ) -> dict[str, Any]:
     """Run the investigation and return the CLI-facing JSON payload.
 
@@ -46,6 +47,7 @@ def run_investigation_cli(
     the shared session API so every surface uses the same entry.
 
     ``investigation_metadata`` is an optional ``(alert_name, severity)`` tuple.
+    ``user_requested`` bypasses automated alert noise filtering.
     """
     check_llm_settings()
     from bootstrap.adapters import install_investigation_api
@@ -60,6 +62,7 @@ def run_investigation_cli(
                 raw_alert,
                 opensre_evaluate=opensre_evaluate,
                 investigation_metadata=investigation_metadata,
+                user_requested=user_requested,
             )
             .as_dict()
         )

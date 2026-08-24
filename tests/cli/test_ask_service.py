@@ -107,7 +107,7 @@ def test_run_ask_investigation_reuses_cli_investigation_service(monkeypatch) -> 
         return {
             "root_cause": "The upstream timed out.",
             "problem_md": "Retry saturation caused the 502s.",
-            "report": "Fallback summary",
+            "report": "Restart the exhausted upstream connection pool.",
         }
 
     monkeypatch.setattr(service, "_run_investigation", fake_investigation)
@@ -122,7 +122,8 @@ def test_run_ask_investigation_reuses_cli_investigation_service(monkeypatch) -> 
     assert seen == ["checkout-api is returning 502s"]
     assert outcome.status is AskStatus.SUCCESS
     assert outcome.response == (
-        "## Root Cause\n\nThe upstream timed out.\n\n## Report\n\nRetry saturation caused the 502s."
+        "## Root Cause\n\nThe upstream timed out.\n\n## Report\n\n"
+        "Restart the exhausted upstream connection pool."
     )
 
 

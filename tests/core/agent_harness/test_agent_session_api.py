@@ -182,6 +182,29 @@ def test_investigate_fails_closed_without_runner() -> None:
         AgentSession().investigate("spike")
 
 
+def test_investigate_forwards_explicit_user_request() -> None:
+    reset_investigation_payload_runner_for_tests()
+    captured: dict[str, Any] = {}
+
+    def _fake_runner(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "report": "done",
+            "problem_md": "p",
+            "root_cause": "r",
+            "is_noise": False,
+            "validity_score": 0.9,
+        }
+
+    install_investigation_payload_runner(_fake_runner)
+    try:
+        AgentSession().investigate("spike", user_requested=True)
+    finally:
+        reset_investigation_payload_runner_for_tests()
+
+    assert captured["user_requested"] is True
+
+
 def test_investigation_result_round_trips_optional_fields() -> None:
     payload = {
         "report": "r",

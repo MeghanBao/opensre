@@ -99,6 +99,7 @@ def run_installed_investigation_payload(
     raw_alert: AlertInput,
     opensre_evaluate: bool = False,
     investigation_metadata: tuple[str, str] | None = None,
+    user_requested: bool = False,
 ) -> InvestigationResult:
     """Run investigation through the installed payload runner."""
     runner = _payload_runner
@@ -109,11 +110,21 @@ def run_installed_investigation_payload(
             "bootstrap.adapters.install_investigation_api() before "
             "AgentSession.investigate."
         )
-    payload = runner(
-        raw_alert=raw_alert,
-        opensre_evaluate=opensre_evaluate,
-        investigation_metadata=investigation_metadata,
-    )
+    if user_requested:
+        payload = runner(
+            raw_alert=raw_alert,
+            opensre_evaluate=opensre_evaluate,
+            investigation_metadata=investigation_metadata,
+            user_requested=True,
+        )
+    else:
+        # Preserve compatibility with installed runners that predate the
+        # explicit-user marker.
+        payload = runner(
+            raw_alert=raw_alert,
+            opensre_evaluate=opensre_evaluate,
+            investigation_metadata=investigation_metadata,
+        )
     return InvestigationResult.from_payload(payload)
 
 

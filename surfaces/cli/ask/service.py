@@ -201,13 +201,13 @@ def _run_investigation(prompt: str) -> dict[str, object]:
     """Run raw incident text through the canonical CLI investigation service."""
     from surfaces.cli.investigation.investigate import run_investigation_cli
 
-    return run_investigation_cli(raw_alert=prompt)
+    return run_investigation_cli(raw_alert=prompt, user_requested=True)
 
 
 def _investigation_response(payload: dict[str, object]) -> str:
     """Render a completed investigation into Ask's stable text response field."""
     root_cause = str(payload.get("root_cause") or "").strip()
-    report = str(payload.get("problem_md") or payload.get("report") or "").strip()
+    report = str(payload.get("report") or payload.get("problem_md") or "").strip()
     sections: list[str] = []
     if root_cause:
         sections.append(f"## Root Cause\n\n{root_cause}")

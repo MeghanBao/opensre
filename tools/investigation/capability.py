@@ -87,6 +87,7 @@ def run_investigation(
     openclaw_context: dict[str, Any] | None = None,
     opensre_evaluate: bool = False,
     investigation_metadata: tuple[str, str] | None = None,
+    user_requested: bool = False,
     agent_class: type[ConnectedInvestigationAgent] | None = None,
 ) -> AgentState:
     """Run the investigation from a raw alert payload. Pure function: inputs in, state out.
@@ -97,6 +98,7 @@ def run_investigation(
             integration resolution is skipped — useful for synthetic testing where a
             FixtureGrafanaBackend should be injected without real credential resolution.
         investigation_metadata: Optional ``(alert_name, severity)`` for AgentState.
+        user_requested: Whether an explicit user action initiated the investigation.
         agent_class: Optional override for the investigation agent class. Defaults
             to ``ConnectedInvestigationAgent``. Callers that need a custom
             termination policy, structured-stage progression, or other
@@ -109,6 +111,7 @@ def run_investigation(
         raw_alert=raw_alert,
         opensre_evaluate=opensre_evaluate,
         investigation_metadata=investigation_metadata,
+        user_requested=user_requested,
     )
     if resolved_integrations is not None:
         cast(dict[str, Any], initial)["resolved_integrations"] = resolved_integrations
@@ -205,6 +208,7 @@ def run_investigation_payload(
     raw_alert: str | dict[str, Any],
     opensre_evaluate: bool = False,
     investigation_metadata: tuple[str, str] | None = None,
+    user_requested: bool = False,
 ) -> dict[str, Any]:
     """Run an investigation and return the serializable result payload.
 
@@ -214,11 +218,13 @@ def run_investigation_payload(
     to reach up into ``cli.investigation`` to run an investigation.
 
     ``investigation_metadata`` is an optional ``(alert_name, severity)`` tuple.
+    ``user_requested`` bypasses automated alert noise filtering.
     """
     state = run_investigation(
         raw_alert,
         opensre_evaluate=opensre_evaluate,
         investigation_metadata=investigation_metadata,
+        user_requested=user_requested,
     )
     return build_investigation_payload(state, opensre_evaluate=opensre_evaluate)
 

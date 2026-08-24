@@ -32,6 +32,25 @@ def test_run_investigation_initializes_sentry_and_captures_unhandled_errors(
     assert captured_errors == [expected_error]
 
 
+def test_run_investigation_marks_explicit_user_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def capture_state(state: dict[str, object], **_kwargs: object) -> dict[str, object]:
+        captured.update(state)
+        return state
+
+    import tools.investigation.lifecycle as pipeline_module
+
+    monkeypatch.setattr(runners, "init_sentry", lambda **_kw: None)
+    monkeypatch.setattr(pipeline_module, "run_connected_investigation", capture_state)
+
+    runners.run_investigation("cpu high on api", user_requested=True)
+
+    assert captured["user_requested"] is True
+
+
 def test_traced_node_exception_is_captured_once_with_node_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

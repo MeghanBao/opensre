@@ -34,7 +34,7 @@ def _reraise_cli_investigation_failure(exc: BaseException) -> NoReturn:
 @traceable(name="investigation")
 def run_investigation_cli(
     *,
-    raw_alert: dict[str, Any],
+    raw_alert: str | dict[str, Any],
     opensre_evaluate: bool = False,
     investigation_metadata: tuple[str, str] | None = None,
 ) -> dict[str, Any]:

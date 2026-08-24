@@ -99,6 +99,52 @@ def test_run_ask_returns_success(monkeypatch) -> None:
     assert outcome.exit_code is AskExitCode.SUCCESS
 
 
+def test_run_ask_investigation_reuses_cli_investigation_service(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_investigation(prompt: str) -> dict[str, object]:
+        seen.append(prompt)
+        return {
+            "root_cause": "The upstream timed out.",
+            "problem_md": "Retry saturation caused the 502s.",
+            "report": "Fallback summary",
+        }
+
+    monkeypatch.setattr(service, "_run_investigation", fake_investigation)
+
+    outcome = service.run_ask(
+        "checkout-api is returning 502s",
+        allowed_tools=(),
+        bypass_approvals=False,
+        investigate=True,
+    )
+
+    assert seen == ["checkout-api is returning 502s"]
+    assert outcome.status is AskStatus.SUCCESS
+    assert outcome.response == (
+        "## Root Cause\n\nThe upstream timed out.\n\n## Report\n\nRetry saturation caused the 502s."
+    )
+
+
+def test_run_ask_investigation_maps_runtime_failure(monkeypatch) -> None:
+    def fail(_prompt: str) -> dict[str, object]:
+        raise RuntimeError("pipeline failed")
+
+    monkeypatch.setattr(service, "_run_investigation", fail)
+    monkeypatch.setattr("surfaces.cli.telemetry.report_exception", lambda *_a, **_kw: None)
+
+    outcome = service.run_ask(
+        "checkout is slow",
+        allowed_tools=(),
+        bypass_approvals=False,
+        investigate=True,
+    )
+
+    assert outcome.status is AskStatus.ERROR
+    assert outcome.error is not None
+    assert outcome.error.message == "pipeline failed"
+
+
 def test_agent_turn_closes_ephemeral_session_after_failure(monkeypatch) -> None:
     # Arrange: the built session fails its turn; the ephemeral session must
     # still be closed (extract_memory=False) via the finally block.

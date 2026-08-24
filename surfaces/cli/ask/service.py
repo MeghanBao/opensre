@@ -197,6 +197,25 @@ def _successful_turn(result: TurnResult) -> bool:
     )
 
 
+def _run_investigation(prompt: str) -> dict[str, object]:
+    """Run raw incident text through the canonical CLI investigation service."""
+    from surfaces.cli.investigation.investigate import run_investigation_cli
+
+    return run_investigation_cli(raw_alert=prompt)
+
+
+def _investigation_response(payload: dict[str, object]) -> str:
+    """Render a completed investigation into Ask's stable text response field."""
+    root_cause = str(payload.get("root_cause") or "").strip()
+    report = str(payload.get("problem_md") or payload.get("report") or "").strip()
+    sections: list[str] = []
+    if root_cause:
+        sections.append(f"## Root Cause\n\n{root_cause}")
+    if report:
+        sections.append(f"## Report\n\n{report}")
+    return "\n\n".join(sections)
+
+
 def _approval_denied_outcome(
     tracker: ApprovalTracker,
     *,
@@ -223,13 +242,63 @@ def cancelled_outcome(signum: int) -> AskOutcome:
     )
 
 
+def _failure_outcome(
+    exc: Exception,
+    *,
+    tracker: ApprovalTracker | None = None,
+    context: str,
+) -> AskOutcome:
+    if tracker is not None:
+        denied = _approval_denied_outcome(tracker)
+        if denied is not None:
+            return denied
+    if isinstance(exc, OpenSREError):
+        return AskOutcome(
+            status=AskStatus.ERROR,
+            response="",
+            error=AskError(message=exc.message, suggestion=exc.suggestion),
+            exit_code=AskExitCode.ERROR,
+        )
+
+    from surfaces.cli.telemetry import report_exception
+
+    report_exception(exc, context=context)
+    return AskOutcome(
+        status=AskStatus.ERROR,
+        response="",
+        error=AskError(message=str(exc) or type(exc).__name__),
+        exit_code=AskExitCode.ERROR,
+    )
+
+
+def _run_ask_investigation(prompt: str) -> AskOutcome:
+    try:
+        response = _investigation_response(_run_investigation(prompt))
+    except AskSignal as exc:
+        return cancelled_outcome(exc.signum)
+    except Exception as exc:
+        return _failure_outcome(exc, context="surfaces.cli.ask.investigate")
+    if not response:
+        return AskOutcome(
+            status=AskStatus.ERROR,
+            response="",
+            error=AskError(message="The investigation did not produce a report."),
+            exit_code=AskExitCode.ERROR,
+        )
+    return AskOutcome(status=AskStatus.SUCCESS, response=response)
+
+
 def run_ask(
     prompt: str,
     *,
     allowed_tools: tuple[str, ...],
     bypass_approvals: bool,
+    investigate: bool = False,
 ) -> AskOutcome:
     """Execute one ask turn with invocation-scoped approval authority."""
+    if investigate:
+        return _run_ask_investigation(prompt)
+
     tracker = ApprovalTracker()
     hooks = build_approval_hooks(
         allowed_tools=allowed_tools,
@@ -240,29 +309,8 @@ def run_ask(
         result = _run_agent_turn(prompt, hooks)
     except AskSignal as exc:
         return cancelled_outcome(exc.signum)
-    except OpenSREError as exc:
-        denied = _approval_denied_outcome(tracker)
-        if denied is not None:
-            return denied
-        return AskOutcome(
-            status=AskStatus.ERROR,
-            response="",
-            error=AskError(message=exc.message, suggestion=exc.suggestion),
-            exit_code=AskExitCode.ERROR,
-        )
     except Exception as exc:
-        denied = _approval_denied_outcome(tracker)
-        if denied is not None:
-            return denied
-        from surfaces.cli.telemetry import report_exception
-
-        report_exception(exc, context="surfaces.cli.ask")
-        return AskOutcome(
-            status=AskStatus.ERROR,
-            response="",
-            error=AskError(message=str(exc) or type(exc).__name__),
-            exit_code=AskExitCode.ERROR,
-        )
+        return _failure_outcome(exc, tracker=tracker, context="surfaces.cli.ask")
 
     denied = _approval_denied_outcome(
         tracker,

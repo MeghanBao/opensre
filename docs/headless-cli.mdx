@@ -18,7 +18,35 @@ Pass `-` as the prompt to read all of standard input:
 cat incident-notes.txt | opensre ask -
 ```
 
-For a structured alert investigation, use `opensre investigate` instead.
+## Full investigation mode
+
+Normal Ask requests are conversational and do not automatically start the full
+RCA pipeline. Select it explicitly when the prompt describes an incident:
+
+```bash
+opensre ask --investigate "checkout-api is returning 502s in us-east-1"
+```
+
+A literal leading `/investigate` is supported as a compatibility shortcut:
+
+```bash
+opensre ask "/investigate checkout-api is returning 502s in us-east-1"
+```
+
+Only `/investigate` is available through Ask. Open `opensre` to use other slash
+commands. Continue to use `opensre investigate` for alert files, templates,
+evaluation, or the complete structured result.
+
+Integration setup remains an interactive terminal workflow and never opens
+inside Ask. Run it directly, then retry the request:
+
+```bash
+opensre integrations setup grafana
+opensre integrations verify grafana
+```
+
+Do not combine `--investigate` with Ask's tool-approval options. Investigation
+mode uses the same execution contract as `opensre investigate`.
 
 ## Tool approvals
 
@@ -60,7 +88,8 @@ opensre --json ask "summarize current service health"
 
 The command writes one JSON object with `status`, `response`, `denied_tools`,
 and `error`. The `error` value is either `null` or an object with `message` and
-`suggestion`.
+`suggestion`. In a terminal, progress is written to stderr; redirected and JSON
+runs stay quiet until the final result.
 
 | Exit code | Meaning |
 | --- | --- |

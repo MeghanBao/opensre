@@ -144,9 +144,10 @@ opensre
 
 ```bash
 opensre ask "why is checkout-api slow?"
+opensre ask --investigate "checkout-api is returning 502s in us-east-1"
 ```
 
-See **[Headless CLI](https://www.opensre.com/docs/headless-cli)** for stdin prompts, JSON output, and tool approvals.
+See **[Headless CLI](https://www.opensre.com/docs/headless-cli)** for investigation mode, stdin prompts, JSON output, and tool approvals.
 
 **One-shot investigation** — run the agent once against an alert file:
 

@@ -1,5 +1,7 @@
 """GitLab tools must surface their diagnostic output as citeable evidence."""
 
+from typing import Any
+
 import pytest
 
 from tools.investigation.stages.gather_evidence.tools import merge_tool_evidence
@@ -16,7 +18,7 @@ from tools.investigation.stages.gather_evidence.tools import merge_tool_evidence
 def test_gitlab_list_tools_record_counts_as_evidence(
     tool_name: str, result_key: str, label: str, noun: str
 ) -> None:
-    evidence: dict = {}
+    evidence: dict[str, Any] = {}
 
     merge_tool_evidence(evidence, tool_name, {result_key: [{"id": 1}, {"id": 2}]}, {})
 
@@ -25,13 +27,13 @@ def test_gitlab_list_tools_record_counts_as_evidence(
     assert entry["label"] == label
     assert entry["summary"] == f"2 {noun}"
 
-    empty: dict = {}
+    empty: dict[str, Any] = {}
     merge_tool_evidence(empty, tool_name, {result_key: []}, {})
     assert "catalog_entries" not in empty
 
 
 def test_get_gitlab_file_records_identity_not_contents() -> None:
-    evidence: dict = {}
+    evidence: dict[str, Any] = {}
 
     merge_tool_evidence(
         evidence,
@@ -49,7 +51,12 @@ def test_get_gitlab_file_records_identity_not_contents() -> None:
 
 
 def test_get_gitlab_file_records_nothing_when_empty_or_unavailable() -> None:
-    for payload in ({"file": {}}, {"file": {"content": ""}}, {"available": False}):
-        evidence: dict = {}
+    payloads: tuple[dict[str, Any], ...] = (
+        {"file": {}},
+        {"file": {"content": ""}},
+        {"available": False},
+    )
+    for payload in payloads:
+        evidence: dict[str, Any] = {}
         merge_tool_evidence(evidence, "get_gitlab_file", payload, {})
         assert "catalog_entries" not in evidence

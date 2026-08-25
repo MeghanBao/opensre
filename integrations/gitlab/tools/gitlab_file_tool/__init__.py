@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
+from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
 from core.tool_framework import tool
 from core.tool_framework.utils import code_host_unavailable_payload, tool_unavailable
@@ -33,9 +34,26 @@ def _get_gitlab_file_available(sources: dict[str, dict]) -> bool:
     return bool(_gitlab_available(sources) and gl.get("project_id") and gl.get("file_path"))
 
 
+def _map_get_gitlab_file(
+    evidence: dict[str, Any], output: dict[str, Any], _tool_input: dict[str, Any]
+) -> None:
+    """Record a fetched GitLab file as citeable evidence (identity only, not contents)."""
+    file = output.get("file") or {}
+    content = file.get("content", "")
+    if content:
+        lines = content.count("\n") + 1
+        record_evidence_entry(
+            evidence,
+            source="get_gitlab_file",
+            label="GitLab File",
+            summary=f"{file.get('file_path') or 'file'} ({lines} lines, {len(content)} chars)",
+        )
+
+
 @tool(
     name="get_gitlab_file",
     source="gitlab",
+    evidence_mapper=_map_get_gitlab_file,
     description="Read the contents of a specific file from a GitLab repository.",
     use_cases=[
         "Reading a config file that may explain a misconfiguration causing the incident",

@@ -65,7 +65,6 @@ get_github_file_contents
 get_github_repository
 get_github_repository_tree
 get_github_star_history
-get_gitlab_file
 get_groundcover_query_reference
 get_hermes_adapter_catalog
 get_hermes_approval_events
@@ -180,9 +179,6 @@ list_github_actions_workflow_runs
 list_github_commits
 list_github_security_alerts
 list_github_work_items
-list_gitlab_commits
-list_gitlab_mrs
-list_gitlab_pipelines
 list_jenkins_builds
 list_jenkins_jobs
 list_jenkins_running_builds

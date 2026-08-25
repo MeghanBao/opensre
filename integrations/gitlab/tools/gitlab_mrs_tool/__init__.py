@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
 from core.tool_framework import tool
 from core.tool_framework.utils import code_host_unavailable_payload
@@ -33,9 +34,24 @@ def _list_gitlab_mrs_available(sources: dict[str, dict]) -> bool:
     return bool(_gitlab_available(sources) and gl.get("project_id"))
 
 
+def _map_list_gitlab_mrs(
+    evidence: dict[str, Any], output: dict[str, Any], _tool_input: dict[str, Any]
+) -> None:
+    """Record recent GitLab merge requests as citeable evidence."""
+    mrs = output.get("mrs", [])
+    if mrs:
+        record_evidence_entry(
+            evidence,
+            source="list_gitlab_mrs",
+            label="GitLab Merge Requests",
+            summary=f"{len(mrs)} recent merge requests",
+        )
+
+
 @tool(
     name="list_gitlab_mrs",
     source="gitlab",
+    evidence_mapper=_map_list_gitlab_mrs,
     description="List recent merge requests for a GitLab project.",
     use_cases=[
         "Checking whether a recently merged MR introduced a failure",

@@ -50,6 +50,20 @@ def test_get_gitlab_file_records_identity_not_contents() -> None:
     assert "a: 1" not in entry["summary"]
 
 
+def test_get_gitlab_file_line_count_ignores_trailing_newline() -> None:
+    evidence: dict[str, Any] = {}
+
+    merge_tool_evidence(
+        evidence,
+        "get_gitlab_file",
+        {"file": {"file_path": "config/app.yaml", "content": "a\nb\nc\n"}},
+        {},
+    )
+
+    # A newline-terminated file has 3 lines, not 4.
+    assert evidence["catalog_entries"][0]["summary"] == "config/app.yaml (3 lines, 6 chars)"
+
+
 def test_get_gitlab_file_records_nothing_when_empty_or_unavailable() -> None:
     payloads: tuple[dict[str, Any], ...] = (
         {"file": {}},

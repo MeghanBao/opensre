@@ -41,7 +41,7 @@ def _map_get_gitlab_file(
     file = output.get("file") or {}
     content = file.get("content", "")
     if content:
-        lines = content.count("\n") + 1
+        lines = len(content.splitlines())
         record_evidence_entry(
             evidence,
             source="get_gitlab_file",
